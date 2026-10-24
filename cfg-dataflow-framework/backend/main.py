@@ -44,88 +44,114 @@ class SampleProgram(BaseModel):
 
 C_SAMPLE_PROGRAMS: List[SampleProgram] = [
     SampleProgram(
+        id="simple_assignments",
+        title="1. Simple Assignments (Program A)",
+        description="Sequential assignments without branching. Tests linear basic block generation.",
+        code="""a = 10;
+b = 20;
+c = a + b;
+d = c * 2;"""
+    ),
+    SampleProgram(
+        id="if_else_statements",
+        title="2. If-Else Statements (Program B)",
+        description="Conditional split into two branches and reconvergence at a merge point.",
+        code="""x = 10;
+
+if (x > 5) {
+    y = x + 1;
+} else {
+    y = x - 1;
+}
+
+z = y * 2;"""
+    ),
+    SampleProgram(
         id="while_loop",
-        title="While Loop (Sum 1 to 10)",
-        description="Standard while loop accumulating sum from 1 to 10. Demonstrates natural loops, back edges, and loop-carried definitions.",
-        code="""int main() {
-    int i = 1;
-    int sum = 0;
-    while (i <= 10) {
-        sum = sum + i;
-        i = i + 1;
-    }
-    return sum;
-}"""
+        title="3. While Loop (Program C)",
+        description="Natural loop with condition, loop body, back-edge, and post-loop exit.",
+        code="""i = 0;
+sum = 0;
+
+while (i < 5) {
+    sum = sum + i;
+    i = i + 1;
+}
+
+result = sum;"""
     ),
     SampleProgram(
-        id="if_else_diamond",
-        title="If-Else Diamond Branching",
-        description="Classic control-flow split and reconvergence. Demonstrates merge points, union/intersection dataflow confluence.",
-        code="""int main() {
-    int a = 5;
-    int b = 10;
-    int x = a + b;
-    int y = 0;
-    int z = 0;
+        id="nested_conditions",
+        title="4. Nested Conditions (Program D)",
+        description="Nested if-else statements testing multi-level branching and cascaded joins.",
+        code="""x = 10;
+y = 0;
 
-    if (x > 10) {
-        y = a + b;
-        z = 100;
+if (x > 0) {
+    if (x > 5) {
+        y = x * 2;
     } else {
-        y = 20;
-        z = a + b;
+        y = x + 2;
     }
+} else {
+    y = 0;
+}
 
-    int res = y + z;
-    return res;
-}"""
+result = y;"""
     ),
     SampleProgram(
-        id="for_loop_nested",
-        title="Nested For Loops with Break",
-        description="Two levels of loop nesting with conditional early break. Tests multi-level CFG hierarchy and back edges.",
-        code="""int main() {
-    int count = 0;
-    for (int i = 0; i < 5; i++) {
-        for (int j = 0; j < 3; j++) {
-            count = count + 1;
-            if (count == 8) {
-                break;
-            }
-        }
+        id="repeated_variable_assignments",
+        title="5. Repeated Variable Assignments",
+        description="Variable defined multiple times, demonstrating KILL sets in Reaching Definitions.",
+        code="""int x = 1;
+int y = 2;
+x = x + 10;
+
+if (x > 5) {
+    x = 20;
+    y = x + 1;
+} else {
+    x = 30;
+}
+
+x = x + y;
+return x;"""
+    ),
+    SampleProgram(
+        id="arithmetic_expressions",
+        title="6. Arithmetic Expressions & Parentheses",
+        description="Complex arithmetic subexpressions demonstrating Available Expressions.",
+        code="""int a = 4;
+int b = 7;
+int x = (a + b) * 2;
+int y = 0;
+
+if (x > 20) {
+    y = (a + b) * 2;
+} else {
+    y = a + b;
+}
+
+int z = (a + b) * 2;
+return x + y + z;"""
+    ),
+    SampleProgram(
+        id="combined_branch_and_loop",
+        title="7. Combined Branches & Loop",
+        description="While loop containing conditional if-else logic inside the loop body.",
+        code="""int i = 1;
+int sum = 0;
+
+while (i <= 6) {
+    if (i % 2 == 0) {
+        sum = sum + i;
+    } else {
+        sum = sum + 1;
     }
-    return count;
-}"""
-    ),
-    SampleProgram(
-        id="euclid_gcd",
-        title="Euclidean GCD Algorithm",
-        description="Calculates greatest common divisor using modulo inside a while loop with variable updates.",
-        code="""int main() {
-    int a = 48;
-    int b = 18;
-    while (b != 0) {
-        int t = b;
-        b = a % b;
-        a = t;
-    }
-    return a;
-}"""
-    ),
-    SampleProgram(
-        id="optimizations_demo",
-        title="CSE & Dead Code Optimization Demo",
-        description="Contains duplicate expressions (a * b) and dead assignments to test compiler diagnostics.",
-        code="""int main() {
-    int a = 5;
-    int b = 10;
-    int dead_val = 999;
-    int x = a * b;
-    int unused = a + b;
-    int y = a * b;
-    int result = x + y;
-    return result;
-}"""
+    i = i + 1;
+}
+
+return sum;"""
     )
 ]
 
