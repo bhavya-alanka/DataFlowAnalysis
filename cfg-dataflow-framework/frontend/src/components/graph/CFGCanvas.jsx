@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useCallback } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   Controls,
   Background,
   MiniMap,
@@ -14,11 +16,123 @@ import { nodeTypes } from './CFGNode';
 import EmptyState from '../common/EmptyState';
 import { GitBranch, Maximize2, RotateCcw, Info } from 'lucide-react';
 
+function CFGCanvasInner({
+  cfgData,
+  selectedBlockId,
+  onSelectBlock,
+  onAnalyze,
+  nodes,
+  edges,
+  onNodesChange,
+  onEdgesChange,
+}) {
+  const { fitView } = useReactFlow();
+
+  // Re-fit view smoothly whenever nodes update
+  useEffect(() => {
+    if (nodes && nodes.length > 0) {
+      const timer = setTimeout(() => {
+        fitView({ padding: 0.25, duration: 250 });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [nodes, fitView]);
+
+  const handleNodeClick = useCallback(
+    (_, node) => {
+      if (cfgData && cfgData.blocks) {
+        const block = cfgData.blocks.find((b) => b.id === node.id);
+        if (block && onSelectBlock) {
+          onSelectBlock(block);
+        }
+      }
+    },
+    [cfgData, onSelectBlock]
+  );
+
+  const userBlockCount =
+    cfgData?.blocks?.filter((b) => !b.is_entry && !b.is_exit).length || 0;
+  const backEdgeCount =
+    cfgData?.edges?.filter((e) => e.type === 'back_edge').length || 0;
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={nodeTypes}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onNodeClick={handleNodeClick}
+      fitView
+      fitViewOptions={{ padding: 0.25 }}
+      minZoom={0.2}
+      maxZoom={2.5}
+      defaultEdgeOptions={{ type: 'smoothstep' }}
+    >
+      <Background color="#293140" gap={24} size={1} />
+      <Controls position="bottom-left" showInteractive={false} />
+
+      {/* MiniMap */}
+      <MiniMap
+        position="bottom-right"
+        nodeColor={(n) => {
+          if (n.data?.type === 'ENTRY') return '#7C8CFF';
+          if (n.data?.type === 'EXIT') return '#929BAD';
+          return '#171C26';
+        }}
+        maskColor="rgba(11, 13, 18, 0.75)"
+        className="cfg-minimap"
+      />
+
+      {/* Top-Left: Legend Panel */}
+      <Panel position="top-left">
+        <div className="cfg-legend-card">
+          <span className="legend-chip">
+            <span className="swatch swatch-entry" /> Entry/Exit
+          </span>
+          <span className="legend-chip">
+            <span className="swatch swatch-block" /> Basic Block
+          </span>
+          <span className="legend-chip">
+            <span className="swatch swatch-leader">★</span> Leader
+          </span>
+          <span className="legend-chip">
+            <span className="swatch swatch-true" /> True
+          </span>
+          <span className="legend-chip">
+            <span className="swatch swatch-false" /> False
+          </span>
+          <span className="legend-chip">
+            <span className="swatch swatch-loop" /> Loop Back
+          </span>
+        </div>
+      </Panel>
+
+      {/* Top-Right: Quick HUD Telemetry */}
+      <Panel position="top-right">
+        <div className="cfg-hud-card">
+          <span className="hud-metric">
+            Blocks: <strong className="text-accent">{userBlockCount}</strong>
+          </span>
+          <span className="hud-metric">
+            Edges: <strong>{cfgData?.edges?.length || 0}</strong>
+          </span>
+          {backEdgeCount > 0 && (
+            <span className="hud-metric">
+              Loops: <strong className="text-violet">{backEdgeCount}</strong>
+            </span>
+          )}
+        </div>
+      </Panel>
+    </ReactFlow>
+  );
+}
+
 export default function CFGCanvas({
   cfgData,
   selectedBlockId,
   onSelectBlock,
-  onAnalyze
+  onAnalyze,
 }) {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -32,7 +146,7 @@ export default function CFGCanvas({
     }
 
     const blocks = cfgData.blocks;
-    const rawEdges = cfgData.edges;
+    const rawEdges = cfgData.edges || [];
     const blockMap = new Map(blocks.map((b) => [b.id, b]));
 
     // 1. Assign BFS topological ranks
@@ -48,7 +162,7 @@ export default function CFGCanvas({
       const currBlock = blockMap.get(currId);
       if (!currBlock) continue;
 
-      for (const succId of (currBlock.successors || [])) {
+      for (const succId of currBlock.successors || []) {
         const existingLevel = levels.get(succId);
         if (existingLevel === undefined || existingLevel < currLevel + 1) {
           if (!visited.has(succId) || succId === 'EXIT') {
@@ -107,10 +221,15 @@ export default function CFGCanvas({
           id: item.id,
           type: item.isTerminal ? 'terminalNode' : 'blockNode',
           position: { x: startX, y: currentY },
+          style: { width: item.width },
           data: {
             label: item.id,
             block: item.block,
-            type: item.block.is_entry ? 'ENTRY' : item.block.is_exit ? 'EXIT' : 'BLOCK',
+            type: item.block.is_entry
+              ? 'ENTRY'
+              : item.block.is_exit
+              ? 'EXIT'
+              : 'BLOCK',
             isSelected: item.id === selectedBlockId,
           },
           selected: item.id === selectedBlockId,
@@ -159,7 +278,7 @@ export default function CFGCanvas({
           fill: '#E8ECF4',
           fontWeight: 600,
           fontSize: 11,
-          fontFamily: 'var(--font-mono)'
+          fontFamily: 'var(--font-mono)',
         },
         labelBgStyle: {
           fill: '#11151D',
@@ -167,7 +286,7 @@ export default function CFGCanvas({
           rx: 4,
           ry: 4,
           stroke: '#293140',
-          strokeWidth: 1
+          strokeWidth: 1,
         },
         labelBgPadding: [6, 4],
         style: {
@@ -188,15 +307,6 @@ export default function CFGCanvas({
     setEdges(calculatedEdges);
   }, [cfgData, selectedBlockId]);
 
-  const handleNodeClick = useCallback((_, node) => {
-    if (cfgData && cfgData.blocks) {
-      const block = cfgData.blocks.find((b) => b.id === node.id);
-      if (block && onSelectBlock) {
-        onSelectBlock(block);
-      }
-    }
-  }, [cfgData, onSelectBlock]);
-
   if (!cfgData || !cfgData.blocks || cfgData.blocks.length === 0) {
     return (
       <div className="cfg-empty-container">
@@ -211,80 +321,33 @@ export default function CFGCanvas({
     );
   }
 
-  const userBlockCount = cfgData?.blocks?.filter((b) => !b.is_entry && !b.is_exit).length || 0;
-  const backEdgeCount = cfgData?.edges?.filter((e) => e.type === 'back_edge').length || 0;
+  const cfgKey =
+    cfgData.blocks.map((b) => b.id).join('_') +
+    `_${cfgData.edges?.length || 0}`;
 
   return (
-    <div className="cfg-canvas-wrapper">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onNodeClick={handleNodeClick}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
-        maxZoom={2.5}
-        defaultEdgeOptions={{ type: 'smoothstep' }}
-      >
-        <Background color="#293140" gap={24} size={1} />
-        <Controls position="bottom-left" showInteractive={false} />
-        
-        {/* MiniMap */}
-        <MiniMap
-          position="bottom-right"
-          nodeColor={(n) => {
-            if (n.data?.type === 'ENTRY') return '#7C8CFF';
-            if (n.data?.type === 'EXIT') return '#929BAD';
-            return '#171C26';
-          }}
-          maskColor="rgba(11, 13, 18, 0.75)"
-          className="cfg-minimap"
+    <div
+      className="cfg-canvas-wrapper"
+      style={{
+        width: '100%',
+        height: '100%',
+        minHeight: '440px',
+        position: 'relative',
+      }}
+    >
+      <ReactFlowProvider>
+        <CFGCanvasInner
+          key={cfgKey}
+          cfgData={cfgData}
+          selectedBlockId={selectedBlockId}
+          onSelectBlock={onSelectBlock}
+          onAnalyze={onAnalyze}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
         />
-
-        {/* Top-Left: Legend Panel */}
-        <Panel position="top-left">
-          <div className="cfg-legend-card">
-            <span className="legend-chip">
-              <span className="swatch swatch-entry" /> Entry/Exit
-            </span>
-            <span className="legend-chip">
-              <span className="swatch swatch-block" /> Basic Block
-            </span>
-            <span className="legend-chip">
-              <span className="swatch swatch-leader">★</span> Leader
-            </span>
-            <span className="legend-chip">
-              <span className="swatch swatch-true" /> True
-            </span>
-            <span className="legend-chip">
-              <span className="swatch swatch-false" /> False
-            </span>
-            <span className="legend-chip">
-              <span className="swatch swatch-loop" /> Loop Back
-            </span>
-          </div>
-        </Panel>
-
-        {/* Top-Right: Quick HUD Telemetry */}
-        <Panel position="top-right">
-          <div className="cfg-hud-card">
-            <span className="hud-metric">
-              Blocks: <strong className="text-accent">{userBlockCount}</strong>
-            </span>
-            <span className="hud-metric">
-              Edges: <strong>{cfgData?.edges?.length || 0}</strong>
-            </span>
-            {backEdgeCount > 0 && (
-              <span className="hud-metric">
-                Loops: <strong className="text-violet">{backEdgeCount}</strong>
-              </span>
-            )}
-          </div>
-        </Panel>
-      </ReactFlow>
+      </ReactFlowProvider>
     </div>
   );
 }

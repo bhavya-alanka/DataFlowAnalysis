@@ -3,9 +3,9 @@
 export class CFGGraphRenderer {
   constructor(svgElement, onNodeSelect) {
     this.svg = svgElement;
-    this.viewport = svgElement.querySelector('#viewport-group');
-    this.edgesLayer = svgElement.querySelector('#edges-layer');
-    this.nodesLayer = svgElement.querySelector('#nodes-layer');
+    this.viewport = svgElement ? (svgElement.querySelector('#viewport-group') || svgElement) : null;
+    this.edgesLayer = svgElement ? (svgElement.querySelector('#edges-layer') || this.viewport) : null;
+    this.nodesLayer = svgElement ? (svgElement.querySelector('#nodes-layer') || this.viewport) : null;
     this.onNodeSelect = onNodeSelect;
 
     this.scale = 1;
@@ -19,7 +19,9 @@ export class CFGGraphRenderer {
     this.nodeLayouts = new Map(); // id -> { x, y, width, height, level }
     this.selectedNodeId = null;
 
-    this.initEvents();
+    if (this.svg) {
+      this.initEvents();
+    }
   }
 
   initEvents() {
@@ -77,8 +79,11 @@ export class CFGGraphRenderer {
   }
 
   fitToScreen() {
-    if (!this.nodeLayouts.size) return;
+    if (!this.nodeLayouts.size || !this.svg) return;
     const rect = this.svg.getBoundingClientRect();
+    const containerWidth = rect.width > 0 ? rect.width : (this.svg.clientWidth || 800);
+    const containerHeight = rect.height > 0 ? rect.height : (this.svg.clientHeight || 500);
+
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (const layout of this.nodeLayouts.values()) {
@@ -91,15 +96,19 @@ export class CFGGraphRenderer {
     const graphWidth = maxX - minX + 100;
     const graphHeight = maxY - minY + 100;
 
-    const scaleX = rect.width / graphWidth;
-    const scaleY = rect.height / graphHeight;
-    this.scale = Math.min(Math.min(scaleX, scaleY), 1.2);
-    this.translateX = (rect.width - graphWidth * this.scale) / 2 - minX * this.scale + 50 * this.scale;
+    const scaleX = containerWidth / Math.max(graphWidth, 1);
+    const scaleY = containerHeight / Math.max(graphHeight, 1);
+    this.scale = Math.max(0.3, Math.min(Math.min(scaleX, scaleY), 1.2));
+    if (isNaN(this.scale) || this.scale <= 0) this.scale = 1;
+
+    this.translateX = (containerWidth - graphWidth * this.scale) / 2 - minX * this.scale + 50 * this.scale;
+    if (isNaN(this.translateX)) this.translateX = 40;
     this.translateY = 40;
     this.updateTransform();
   }
 
   updateTransform() {
+    if (!this.viewport) return;
     this.viewport.setAttribute(
       'transform',
       `translate(${this.translateX}, ${this.translateY}) scale(${this.scale})`
@@ -199,24 +208,25 @@ export class CFGGraphRenderer {
 
   render(graphData) {
     this.graphData = graphData;
-    this.edgesLayer.innerHTML = '';
-    this.nodesLayer.innerHTML = '';
+    if (this.edgesLayer) this.edgesLayer.innerHTML = '';
+    if (this.nodesLayer) this.nodesLayer.innerHTML = '';
 
+    const emptyState = document.querySelector('#graph-empty-state');
     if (!graphData || !graphData.blocks || graphData.blocks.length === 0) {
-      document.querySelector('#graph-empty-state').style.display = 'flex';
+      if (emptyState) emptyState.style.display = 'flex';
       return;
     }
-    document.querySelector('#graph-empty-state').style.display = 'none';
+    if (emptyState) emptyState.style.display = 'none';
 
-    this.computeLayout(graphData.blocks, graphData.edges);
+    this.computeLayout(graphData.blocks, graphData.edges || []);
 
     // Render Edges first (under nodes)
-    for (const edge of graphData.edges) {
+    for (const edge of (graphData.edges || [])) {
       this.renderEdge(edge);
     }
 
     // Render Nodes
-    for (const block of graphData.blocks) {
+    for (const block of (graphData.blocks || [])) {
       this.renderNode(block);
     }
 

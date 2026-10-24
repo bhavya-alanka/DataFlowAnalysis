@@ -79,6 +79,15 @@ class BasicBlock:
             "is_exit": self.is_exit
         }
 
+def is_numeric_literal(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        float(token)
+        return True
+    except (ValueError, TypeError):
+        return False
+
 def normalize_expr(op: str, left: str, right: str) -> str:
     """Normalize binary expression for Available Expressions analysis."""
     if op in ('+', '*') and left > right:
@@ -196,7 +205,7 @@ class TACGenerator:
 
     def generate_if(self, stmt: IfStmt):
         cond_val = self.generate_expr(stmt.condition)
-        uses = [cond_val] if not cond_val.lstrip('-').isdigit() else []
+        uses = [cond_val] if not is_numeric_literal(cond_val) else []
         lbl_else = self.new_label("L_ELSE_")
         lbl_end = self.new_label("L_END_IF_")
 
@@ -229,7 +238,7 @@ class TACGenerator:
         self.emit(f"{lbl_start}:", "label", stmt.line, f"{lbl_start}:", target=lbl_start)
 
         cond_val = self.generate_expr(stmt.condition)
-        uses = [cond_val] if not cond_val.lstrip('-').isdigit() else []
+        uses = [cond_val] if not is_numeric_literal(cond_val) else []
         self.emit(
             f"ifFalse {cond_val} goto {lbl_end}",
             "if_goto",
@@ -260,7 +269,7 @@ class TACGenerator:
 
         if stmt.condition:
             cond_val = self.generate_expr(stmt.condition)
-            uses = [cond_val] if not cond_val.lstrip('-').isdigit() else []
+            uses = [cond_val] if not is_numeric_literal(cond_val) else []
             self.emit(
                 f"ifFalse {cond_val} goto {lbl_end}",
                 "if_goto",
@@ -291,7 +300,7 @@ class TACGenerator:
         self.generate_stmt(stmt.body)
 
         cond_val = self.generate_expr(stmt.condition)
-        uses = [cond_val] if not cond_val.lstrip('-').isdigit() else []
+        uses = [cond_val] if not is_numeric_literal(cond_val) else []
         self.emit(
             f"if {cond_val} goto {lbl_start}",
             "if_goto",
@@ -312,7 +321,7 @@ class TACGenerator:
             return expr.name
         elif isinstance(expr, Assignment):
             rhs = self.generate_expr(expr.expr)
-            uses = [rhs] if not rhs.lstrip('-').isdigit() else []
+            uses = [rhs] if not is_numeric_literal(rhs) else []
             self.emit(
                 f"{expr.target} = {rhs}",
                 "copy",
@@ -330,8 +339,8 @@ class TACGenerator:
             t = self.new_temp()
             norm_e = normalize_expr(expr.op, left_val, right_val)
             uses = []
-            if not left_val.lstrip('-').isdigit(): uses.append(left_val)
-            if not right_val.lstrip('-').isdigit(): uses.append(right_val)
+            if not is_numeric_literal(left_val): uses.append(left_val)
+            if not is_numeric_literal(right_val): uses.append(right_val)
             self.emit(
                 f"{t} = {left_val} {expr.op} {right_val}",
                 "binary",
@@ -349,7 +358,7 @@ class TACGenerator:
         elif isinstance(expr, UnaryOp):
             val = self.generate_expr(expr.operand)
             t = self.new_temp()
-            uses = [val] if not val.lstrip('-').isdigit() else []
+            uses = [val] if not is_numeric_literal(val) else []
             self.emit(
                 f"{t} = {expr.op}{val}",
                 "unary",

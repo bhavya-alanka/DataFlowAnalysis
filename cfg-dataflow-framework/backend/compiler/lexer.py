@@ -216,13 +216,15 @@ class Lexer:
                 self.advance()
                 tokens.append(Token('RBRACKET', ']', start_line, start_col))
 
-            # Number literal
+            # Number literal (integers and floats)
             elif ch.isdigit():
                 num_str = ''
-                while self.pos < self.length and self.peek().isdigit():
+                while self.pos < self.length and self.peek() is not None and self.peek().isdigit():
                     num_str += self.advance()
-                if self.peek() == '.':
-                    raise LexerError(f"Floating-point literals are not supported in this C subset ('{num_str}.')", start_line, start_col)
+                if self.peek() == '.' and self.peek(1) is not None and self.peek(1).isdigit():
+                    num_str += self.advance() # consume '.'
+                    while self.pos < self.length and self.peek() is not None and self.peek().isdigit():
+                        num_str += self.advance()
                 tokens.append(Token('NUMBER', num_str, start_line, start_col))
 
             # Identifiers and keywords

@@ -52,7 +52,7 @@ class Parser:
         # Check if the code is a formal C function or a sequence of statements
         is_function_defined = False
         for tok_idx in range(len(self.tokens) - 2):
-            if (self.tokens[tok_idx].type in ('INT', 'VOID') and
+            if (self.tokens[tok_idx].type in ('INT', 'FLOAT', 'VOID') and
                 self.tokens[tok_idx + 1].type == 'IDENT' and
                 self.tokens[tok_idx + 2].type == 'LPAREN'):
                 is_function_defined = True
@@ -60,7 +60,7 @@ class Parser:
 
         if is_function_defined:
             while self.current_token().type != 'EOF':
-                if self.current_token().type in ('INT', 'VOID'):
+                if self.current_token().type in ('INT', 'FLOAT', 'VOID'):
                     # Could be function or global var
                     if self.peek(1).type == 'IDENT' and self.peek(2).type == 'LPAREN':
                         declarations.append(self.parse_function_def())
@@ -113,7 +113,7 @@ class Parser:
         tok = self.current_token()
         if tok.type == 'LBRACE':
             return self.parse_compound_statement()
-        elif tok.type == 'INT':
+        elif tok.type in ('INT', 'FLOAT'):
             decls = self.parse_var_decl()
             # If multiple declarations in one line e.g. int a = 1, b = 2; wrap in compound stmt
             if len(decls) == 1:
@@ -152,7 +152,7 @@ class Parser:
             return ExprStmt(expr, line=tok.line, col=tok.col)
 
     def parse_var_decl(self) -> List[VarDecl]:
-        type_tok = self.expect('INT')
+        type_tok = self.advance()  # 'INT' or 'FLOAT'
         decls = []
         name_tok = self.expect('IDENT', "as variable name")
         init_expr = None
@@ -332,7 +332,8 @@ class Parser:
         tok = self.current_token()
         if tok.type == 'NUMBER':
             self.advance()
-            return Constant(int(tok.value), line=tok.line, col=tok.col)
+            val = float(tok.value) if '.' in tok.value else int(tok.value)
+            return Constant(val, line=tok.line, col=tok.col)
         elif tok.type == 'IDENT':
             self.advance()
             return Identifier(tok.value, line=tok.line, col=tok.col)

@@ -156,6 +156,14 @@ return sum;"""
 ]
 
 def compile_c_to_cfg(source_code: str) -> CFG:
+    if not source_code or not source_code.strip():
+        raise HTTPException(status_code=400, detail={
+            "error_type": "InputError",
+            "message": "Source code cannot be empty. Please enter C source code.",
+            "line": 1,
+            "col": 1
+        })
+
     # 1. Lexical Analysis
     try:
         lexer = Lexer(source_code)

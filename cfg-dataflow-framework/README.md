@@ -2,7 +2,46 @@
 
 An interactive, beginner-friendly compiler analysis and educational platform designed for university Compiler Design coursework and viva demonstrations.
 
-The platform accepts arbitrary user-written programs in a documented C-like language subset, parses them into Three-Address Code (TAC), partitions them into basic blocks using leader detection, constructs an interactive Control Flow Graph (CFG), and solves iterative fixed-point data-flow equations (**Reaching Definitions**, **Live Variables**, and **Available Expressions**).
+The platform accepts arbitrary user-written programs in a documented C-like language subset, parses them into Three-Address Code (TAC), partitions them into basic blocks using leader detection rules, constructs an interactive Control Flow Graph (CFG), and solves iterative fixed-point data-flow equations (**Reaching Definitions**, **Live Variables**, and **Available Expressions**).
+
+---
+
+## 🏛️ Architecture Overview
+
+The framework follows a modular decoupled architecture:
+
+```text
+[ Source Code (C Subset) ]
+           │
+           ▼
+[ Lexer (lexer.py) ] ──▶ Tokens (with line/column positions)
+           │
+           ▼
+[ Recursive-Descent Parser (parser.py) ] ──▶ Abstract Syntax Tree (AST)
+           │
+           ▼
+[ Intermediate Code Generator (basic_blocks.py) ] ──▶ Linear Three-Address Code (TAC)
+           │
+           ▼
+[ BasicBlockBuilder (basic_blocks.py) ] ──▶ Leaders (Rules 1, 2, 3) & Basic Blocks
+           │
+           ▼
+[ CFGBuilder (compiler/cfg.py) ] ──▶ Directed CFG (ENTRY, BasicBlocks, EXIT, Edges)
+           │
+           ├──▶ [ Reaching Definitions ] (Forward May, ∪)
+           ├──▶ [ Live Variables ]       (Backward May, ∪)
+           └──▶ [ Available Expressions ] (Forward Must, ∩)
+           │
+           ▼
+[ FastAPI Server (main.py:8000) ]
+           │ (REST JSON API)
+           ▼
+[ React + Vite Frontend (localhost:5173) ]
+     ├── Code Editor & Sample Selector
+     ├── Interactive React Flow CFG Canvas
+     ├── Data-Flow Results & Canonical IN/OUT Table
+     └── Beginner Glossary & Step Scrubber
+```
 
 ---
 
@@ -45,97 +84,51 @@ npm run dev
 
 | Technical Term | Simple Explanation |
 | :--- | :--- |
-| **CFG** (Control Flow Graph) | A directed diagram showing all possible execution paths through a program. |
-| **Basic Block** | A group of consecutive statements executed sequentially from start to end without branching in the middle. |
-| **Leader** | The first instruction of a basic block, identified using standard compiler partitioning rules. |
+| **CFG** (Control Flow Graph) | Shows the possible execution paths of a program. |
+| **Basic Block** | Sequential statements grouped together that execute from start to finish without branching in the middle. |
+| **Leader** | The first instruction of a basic block, identified using standard 3AC partitioning rules. |
 | **GEN** | Facts newly generated or created within a basic block. |
-| **KILL** | Previously available facts invalidated or overwritten by an assignment in a basic block. |
-| **IN** | Facts entering at the top boundary of a basic block. |
-| **OUT** | Facts leaving from the bottom boundary of a basic block. |
-| **Fixed Point** | The stage where repeated iterations stop changing the IN/OUT sets; the solution has stabilized. |
+| **KILL** | Facts invalidated or overwritten by an assignment in a basic block. |
+| **IN** | Facts entering at the boundary of a basic block. |
+| **OUT** | Facts leaving from the boundary of a basic block. |
+| **Fixed Point** | The stage where repeated iterations stop changing the results; the data-flow equations have stabilized. |
 
 ---
 
-## 📜 Supported Language Subset & Limitations
+## 📜 Supported Language Syntax
 
-The tool accepts arbitrary programs within the following documented grammar:
+The compiler processes arbitrary user-written programs within the following documented grammar:
 
 ### ✅ Supported Constructs
-- **Variable Assignments**: Both explicit declarations (`int x = 10;`) and implicit assignments (`x = 10;`)
-- **Arithmetic Expressions**: `+`, `-`, `*`, `/`, `%` with operator precedence and parentheses `(a + b) * 2`
-- **Relational & Equality**: `<`, `<=`, `>`, `>=`, `==`, `!=`
+- **Variable Assignments**: Explicit declarations (`int x = 10;`) and direct assignments (`x = 10;`)
+- **Arithmetic Expressions**: Binary operators `+`, `-`, `*`, `/`, `%` with operator precedence and grouping parentheses `(a + b) * 2`
+- **Relational & Equality Operators**: `<`, `<=`, `>`, `>=`, `==`, `!=`
 - **Logical Operators**: `&&`, `||`, `!`
 - **Conditionals**: `if (cond) { ... } else { ... }` and single-statement branches without braces
-- **Loops**: `while (cond) { ... }` and `for (init; cond; post) { ... }` with loop back-edges
-- **Nested Control Flow**: Nested `if` inside `if`, and `if` inside `while` loops
+- **Loops**: `while (cond) { ... }`, `for (init; cond; post) { ... }`, and `do { ... } while (cond);`
+- **Nested Control Flow**: Nested `if` inside `if`, `while` inside `while`, and conditionals inside loops
 - **Program Structures**: Formal C functions (`int main() { ... }`) or bare top-level statement sequences
+- **Return Statements**: `return expr;` or `return;`
 
-### ⚠️ Unsupported Constructs (Rejected with Clear Error Messages)
-- Floating-point types (`float`, `double`)
+### ⚠️ Unsupported Constructs (Rejected with Informative Errors)
 - Pointer arithmetic and dereferencing (`*ptr`, `&var`)
-- Aggregate data types (`struct`, `union`, `enum`, arrays)
+- Aggregate data types (`struct`, `union`, `enum`, multi-dimensional arrays)
 - Unstructured jumps (`goto`, `switch`, `case`)
-- Preprocessor macros (`#include`, `#define`)
-
-When unsupported syntax is entered, the tool identifies the exact line and column number, explains what is unsupported, and preserves the user's code.
+- Preprocessor directives (`#include`, `#define`)
 
 ---
 
-## 🧪 Benchmark Test Programs
+## 🔌 API Endpoints Reference
 
-The following programs are pre-loaded in the example dropdown and can also be typed manually:
-
-### Program A — Sequential Assignments
-```c
-a = 10;
-b = 20;
-c = a + b;
-d = c * 2;
-```
-
-### Program B — Conditional Flow
-```c
-x = 10;
-
-if (x > 5) {
-    y = x + 1;
-} else {
-    y = x - 1;
-}
-
-z = y * 2;
-```
-
-### Program C — Loop Flow
-```c
-i = 0;
-sum = 0;
-
-while (i < 5) {
-    sum = sum + i;
-    i = i + 1;
-}
-
-result = sum;
-```
-
-### Program D — Nested Control Flow
-```c
-x = 10;
-y = 0;
-
-if (x > 0) {
-    if (x > 5) {
-        y = x * 2;
-    } else {
-        y = x + 2;
-    }
-} else {
-    y = 0;
-}
-
-result = y;
-```
+| Method | Endpoint | Request Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/health` | None | Returns `{"status": "healthy"}` |
+| `GET` | `/api/samples` | None | Returns list of benchmark C sample programs |
+| `POST` | `/api/cfg/build` | `{"code": str}` | Compiles source code into CFG JSON structure |
+| `POST` | `/api/analyze/reaching-definitions` | `{"code": str}` | Runs Reaching Definitions fixed-point analysis |
+| `POST` | `/api/analyze/live-variables` | `{"code": str}` | Runs Live Variable analysis |
+| `POST` | `/api/analyze/available-expressions` | `{"code": str}` | Runs Available Expressions analysis |
+| `POST` | `/api/analyze/all` | `{"code": str}` | Runs full compiler pipeline and all 3 analyses |
 
 ---
 
@@ -161,19 +154,37 @@ result = y;
 
 ---
 
-## 🧪 Running Automated Tests
+## 🧪 Testing Commands
 
-Run backend unit and integration tests:
+### Backend Automated Tests
 ```powershell
 cd cfg-dataflow-framework/backend
 .\venv\Scripts\Activate.ps1
-pytest -v tests/
+pytest -v
 ```
-All 18 unit tests pass across lexer, parser, basic blocks, CFG construction, and all three data-flow analysis models.
+- Total test count: **34 passing tests** across lexer, parser, basic blocks, CFG construction, and all 3 data-flow analyses.
+- Includes comprehensive integration tests for:
+  1. Sequential assignments
+  2. Multiple definitions of the same variable (KILL verification)
+  3. If-else statements with merge points
+  4. While loops with back edges
+  5. Nested conditional statements
+  6. Combined branching and loops
+  7. Expression invalidation in Available Expressions
+  8. Empty input validation
+  9. Malformed source code error handling
+  10. Unsupported construct error messages
+  11. Arbitrary user-written programs
 
-To run the frontend production build:
+### Frontend Production Build
 ```powershell
 cd cfg-dataflow-framework/frontend
 npm run build
 ```
-Vite compiles the React application cleanly with zero errors.
+Vite builds the production bundle cleanly with 0 errors.
+
+---
+
+## ⚠️ Known Limitations
+- The supported language subset targets procedural straight-line code, conditionals, and loops. Multi-file compilation and external libraries are not supported.
+- Arrays and pointer indirection are not modeled; variables are treated as scalar identifiers.
