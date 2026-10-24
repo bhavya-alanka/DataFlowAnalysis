@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, GitCommit, Layers, Code, ArrowRight } from 'lucide-react';
 
 export default function BlockInspector({ block, analysisData, onClose }) {
   if (!block) return null;
@@ -25,10 +25,13 @@ export default function BlockInspector({ block, analysisData, onClose }) {
   const aeKill = ae?.block_kill?.[bId] || [];
 
   return (
-    <aside className={`inspector-drawer ${block ? 'open' : ''}`}>
+    <aside className="inspector-drawer open">
       <div className="drawer-header">
-        <h4>{bId} Block Details</h4>
-        <button className="btn-icon" onClick={onClose}>
+        <h4>
+          <GitCommit size={16} style={{ color: 'var(--accent-cyan)' }} />
+          <span>{bId} Block Inspector</span>
+        </h4>
+        <button className="btn-icon" onClick={onClose} title="Close Inspector">
           <X size={16} />
         </button>
       </div>
@@ -36,57 +39,68 @@ export default function BlockInspector({ block, analysisData, onClose }) {
       <div className="drawer-body">
         {/* Predecessors & Successors */}
         <div className="drawer-group">
-          <h5>Predecessors</h5>
-          <div className="drawer-pills">
-            {block.predecessors?.length > 0 ? (
-              block.predecessors.map((p) => (
-                <span key={p} className="drawer-pill">
-                  {p}
-                </span>
-              ))
-            ) : (
-              <span style={{ color: 'var(--text-muted)' }}>None (Entry point)</span>
-            )}
-          </div>
-        </div>
-
-        <div className="drawer-group">
-          <h5>Successors</h5>
-          <div className="drawer-pills">
-            {block.successors?.length > 0 ? (
-              block.successors.map((s) => (
-                <span key={s} className="drawer-pill">
-                  {s}
-                </span>
-              ))
-            ) : (
-              <span style={{ color: 'var(--text-muted)' }}>None (Terminal)</span>
-            )}
+          <h5>Flow Connectivity</h5>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem', width: 70 }}>
+                Preds:
+              </span>
+              <div className="drawer-pills">
+                {block.predecessors?.length > 0 ? (
+                  block.predecessors.map((p) => (
+                    <span key={p} className="drawer-pill">
+                      {p}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>None (Entry point)</span>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem', width: 70 }}>
+                Succs:
+              </span>
+              <div className="drawer-pills">
+                {block.successors?.length > 0 ? (
+                  block.successors.map((s) => (
+                    <span key={s} className="drawer-pill">
+                      {s}
+                    </span>
+                  ))
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>None (Exit point)</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Statements */}
         <div className="drawer-group">
-          <h5>Intermediate Statements (3AC)</h5>
+          <h5>Intermediate 3-Address Instructions</h5>
           {block.instructions && block.instructions.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               {block.instructions.map((instr) => (
                 <div
                   key={instr.id}
                   style={{
-                    background: 'rgba(0,0,0,0.3)',
-                    padding: '4px 8px',
-                    borderRadius: 4,
+                    background: 'rgba(0,0,0,0.4)',
+                    padding: '6px 10px',
+                    borderRadius: 6,
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.74rem',
+                    fontSize: '0.75rem',
                     color: instr.is_leader ? '#fde047' : '#cbd5e1',
+                    border: '1px solid var(--border-subtle)',
                   }}
                 >
-                  {instr.is_leader && '★ '}
-                  {instr.raw}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {instr.is_leader && <span style={{ color: '#fde047' }}>★</span>}
+                    <span>{instr.raw}</span>
+                  </div>
                   {instr.c_stmt && (
-                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                      C: {instr.c_stmt}
+                    <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: 2 }}>
+                      C Line {instr.c_line}: {instr.c_stmt}
                     </div>
                   )}
                 </div>
@@ -94,7 +108,7 @@ export default function BlockInspector({ block, analysisData, onClose }) {
             </div>
           ) : (
             <span style={{ color: 'var(--text-muted)' }}>
-              {block.is_entry ? 'Program Entry Point' : 'Program Termination'}
+              {block.is_entry ? 'Program Entrypoint' : 'Program Termination'}
             </span>
           )}
         </div>
@@ -102,19 +116,19 @@ export default function BlockInspector({ block, analysisData, onClose }) {
         {/* Reaching Definitions Sets */}
         {rd && (
           <div className="drawer-group">
-            <h5>Reaching Definitions</h5>
+            <h5 style={{ color: 'var(--accent-cyan)' }}>Reaching Definitions</h5>
             <div className="drawer-set-box">
               <div>
-                <strong>GEN:</strong> {`{ ${rdGen.join(', ') || '∅'} }`}
+                <strong>GEN[B]:</strong> {`{ ${rdGen.join(', ') || '∅'} }`}
               </div>
               <div>
-                <strong>KILL:</strong> {`{ ${rdKill.join(', ') || '∅'} }`}
+                <strong>KILL[B]:</strong> {`{ ${rdKill.join(', ') || '∅'} }`}
               </div>
               <div style={{ marginTop: 4, color: 'var(--accent-cyan)' }}>
-                <strong>IN:</strong> {`{ ${rdIn.join(', ') || '∅'} }`}
+                <strong>IN[B]:</strong> {`{ ${rdIn.join(', ') || '∅'} }`}
               </div>
               <div style={{ color: 'var(--accent-cyan)' }}>
-                <strong>OUT:</strong> {`{ ${rdOut.join(', ') || '∅'} }`}
+                <strong>OUT[B]:</strong> {`{ ${rdOut.join(', ') || '∅'} }`}
               </div>
             </div>
           </div>
@@ -123,19 +137,19 @@ export default function BlockInspector({ block, analysisData, onClose }) {
         {/* Live Variables Sets */}
         {lv && (
           <div className="drawer-group">
-            <h5>Live Variables</h5>
+            <h5 style={{ color: 'var(--accent-purple)' }}>Live Variables</h5>
             <div className="drawer-set-box">
               <div>
-                <strong>USE:</strong> {`{ ${lvUse.join(', ') || '∅'} }`}
+                <strong>USE[B]:</strong> {`{ ${lvUse.join(', ') || '∅'} }`}
               </div>
               <div>
-                <strong>DEF:</strong> {`{ ${lvDef.join(', ') || '∅'} }`}
+                <strong>DEF[B]:</strong> {`{ ${lvDef.join(', ') || '∅'} }`}
               </div>
               <div style={{ marginTop: 4, color: 'var(--accent-purple)' }}>
-                <strong>IN:</strong> {`{ ${lvIn.join(', ') || '∅'} }`}
+                <strong>OUT[B]:</strong> {`{ ${lvOut.join(', ') || '∅'} }`}
               </div>
               <div style={{ color: 'var(--accent-purple)' }}>
-                <strong>OUT:</strong> {`{ ${lvOut.join(', ') || '∅'} }`}
+                <strong>IN[B]:</strong> {`{ ${lvIn.join(', ') || '∅'} }`}
               </div>
             </div>
           </div>
@@ -144,19 +158,19 @@ export default function BlockInspector({ block, analysisData, onClose }) {
         {/* Available Expressions Sets */}
         {ae && (
           <div className="drawer-group">
-            <h5>Available Expressions</h5>
+            <h5 style={{ color: 'var(--accent-amber)' }}>Available Expressions</h5>
             <div className="drawer-set-box">
               <div>
-                <strong>GEN:</strong> {`{ ${aeGen.join(', ') || '∅'} }`}
+                <strong>e_GEN[B]:</strong> {`{ ${aeGen.join(', ') || '∅'} }`}
               </div>
               <div>
-                <strong>KILL:</strong> {`{ ${aeKill.join(', ') || '∅'} }`}
+                <strong>e_KILL[B]:</strong> {`{ ${aeKill.join(', ') || '∅'} }`}
               </div>
               <div style={{ marginTop: 4, color: 'var(--accent-amber)' }}>
-                <strong>IN:</strong> {`{ ${aeIn.join(', ') || '∅'} }`}
+                <strong>IN[B]:</strong> {`{ ${aeIn.join(', ') || '∅'} }`}
               </div>
               <div style={{ color: 'var(--accent-amber)' }}>
-                <strong>OUT:</strong> {`{ ${aeOut.join(', ') || '∅'} }`}
+                <strong>OUT[B]:</strong> {`{ ${aeOut.join(', ') || '∅'} }`}
               </div>
             </div>
           </div>

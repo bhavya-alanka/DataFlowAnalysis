@@ -10,15 +10,34 @@ import {
   Position,
   MarkerType,
 } from '@xyflow/react';
+import {
+  Play,
+  Square,
+  Maximize2,
+  Info,
+  GitCommit
+} from 'lucide-react';
 
 // Custom Basic Block Node
 const CustomBlockNode = ({ data, selected }) => {
   const block = data?.block || {};
   return (
     <div className={`custom-cfg-node ${selected ? 'selected' : ''}`}>
-      <Handle type="target" position={Position.Top} style={{ background: '#38bdf8' }} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{
+          background: '#38bdf8',
+          width: 8,
+          height: 8,
+          border: '2px solid #0f172a',
+        }}
+      />
       <div className="node-header">
-        <span className="node-title-text">{block.id || 'Block'}</span>
+        <div className="node-title-badge">
+          <GitCommit size={14} style={{ color: 'var(--accent-cyan)' }} />
+          <span className="node-title-text">{block.id || 'Block'}</span>
+        </div>
         <span className="node-instr-count">
           {block.instructions?.length || 0} instrs
         </span>
@@ -31,7 +50,13 @@ const CustomBlockNode = ({ data, selected }) => {
               className={`node-line ${instr.is_leader ? 'leader-line' : ''}`}
               title={instr.leader_reason || instr.raw}
             >
-              {instr.is_leader && <span className="leader-star">★</span>}
+              {instr.is_leader ? (
+                <span className="leader-star">★</span>
+              ) : (
+                <span style={{ color: '#475569', fontSize: '0.68rem', width: 12 }}>
+                  {instr.id}
+                </span>
+              )}
               <span>{instr.raw}</span>
             </div>
           ))
@@ -41,7 +66,16 @@ const CustomBlockNode = ({ data, selected }) => {
           </div>
         )}
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: '#38bdf8' }} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{
+          background: '#38bdf8',
+          width: 8,
+          height: 8,
+          border: '2px solid #0f172a',
+        }}
+      />
     </div>
   );
 };
@@ -56,11 +90,20 @@ const CustomTerminalNode = ({ data, selected }) => {
       }`}
     >
       {!isEntry && (
-        <Handle type="target" position={Position.Top} style={{ background: '#94a3b8' }} />
+        <Handle
+          type="target"
+          position={Position.Top}
+          style={{ background: '#94a3b8', width: 8, height: 8 }}
+        />
       )}
+      {isEntry ? <Play size={13} fill="currentColor" /> : <Square size={12} fill="currentColor" />}
       <span>{data?.label || (isEntry ? 'ENTRY' : 'EXIT')}</span>
       {isEntry && (
-        <Handle type="source" position={Position.Bottom} style={{ background: '#60a5fa' }} />
+        <Handle
+          type="source"
+          position={Position.Bottom}
+          style={{ background: '#60a5fa', width: 8, height: 8 }}
+        />
       )}
     </div>
   );
@@ -131,7 +174,7 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
     }
 
     const HORIZONTAL_GAP = 90;
-    const VERTICAL_GAP = 120;
+    const VERTICAL_GAP = 110;
     const calculatedNodes = [];
     let currentY = 40;
 
@@ -140,10 +183,10 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
     for (const lvl of sortedLevels) {
       const group = levelGroups.get(lvl);
       const groupItems = group.map((bId) => {
-        const b = blockMap.get(bId);
-        const width = b.is_entry || b.is_exit ? 160 : 250;
+        const b = blockMap.get(bId) || { id: bId, instructions: [] };
+        const width = b.is_entry || b.is_exit ? 160 : 260;
         const lineCount = b.instructions?.length || 0;
-        const height = b.is_entry || b.is_exit ? 44 : Math.max(70, 36 + lineCount * 22);
+        const height = b.is_entry || b.is_exit ? 44 : Math.max(70, 38 + lineCount * 22);
         return { id: bId, block: b, width, height };
       });
 
@@ -199,8 +242,8 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
         animated,
         label: e.label || undefined,
         labelStyle: { fill: '#cbd5e1', fontWeight: 600, fontSize: 11 },
-        labelBgStyle: { fill: '#0e1424', fillOpacity: 0.85, rx: 4, ry: 4 },
-        labelBgPadding: [4, 4],
+        labelBgStyle: { fill: '#0b0f19', fillOpacity: 0.9, rx: 4, ry: 4 },
+        labelBgPadding: [6, 4],
         style: {
           stroke: strokeColor,
           strokeWidth: 2,
@@ -228,6 +271,9 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
     }
   };
 
+  const userBlockCount = cfgData?.blocks?.filter((b) => !b.is_entry && !b.is_exit).length || 0;
+  const backEdgeCount = cfgData?.edges?.filter((e) => e.type === 'back_edge').length || 0;
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <ReactFlow
@@ -242,8 +288,10 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
         maxZoom={2.5}
         defaultEdgeOptions={{ type: 'smoothstep' }}
       >
-        <Background color="#1e293b" gap={20} size={1} />
-        <Controls />
+        <Background color="#1e293b" gap={24} size={1} />
+        <Controls position="bottom-left" />
+
+        {/* Top Floating Legend & Info HUD */}
         <Panel position="top-left">
           <div className="cfg-legend-panel">
             <span className="legend-item">
@@ -264,6 +312,37 @@ export default function CFGGraph({ cfgData, selectedBlockId, onSelectBlock }) {
             <span className="legend-item">
               <span className="legend-line line-back"></span> Loop Back
             </span>
+          </div>
+        </Panel>
+
+        {/* Top Right HUD stats */}
+        <Panel position="top-right">
+          <div
+            style={{
+              background: 'var(--bg-glass)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid var(--border-medium)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '6px 12px',
+              fontSize: '0.74rem',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              gap: 12,
+              fontFamily: 'var(--font-mono)',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <span>
+              Blocks: <strong style={{ color: 'var(--accent-cyan)' }}>{userBlockCount}</strong>
+            </span>
+            <span>
+              Edges: <strong style={{ color: '#fff' }}>{cfgData?.edges?.length || 0}</strong>
+            </span>
+            {backEdgeCount > 0 && (
+              <span>
+                Loops: <strong style={{ color: 'var(--accent-purple)' }}>{backEdgeCount}</strong>
+              </span>
+            )}
           </div>
         </Panel>
       </ReactFlow>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, RotateCcw } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, Activity } from 'lucide-react';
 
 export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighlightBlock }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -14,13 +14,11 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
 
   const steps = data?.steps || [];
 
-  // Reset step index when data changes
   useEffect(() => {
     setCurrentStepIndex(0);
     setIsPlaying(false);
   }, [analysisData, activeType]);
 
-  // Step playback timer
   useEffect(() => {
     let timer = null;
     if (isPlaying) {
@@ -33,12 +31,11 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
             return prev;
           }
         });
-      }, 700);
+      }, 750);
     }
     return () => clearInterval(timer);
   }, [isPlaying, steps.length]);
 
-  // Highlight block on step change
   useEffect(() => {
     if (steps.length > 0 && steps[currentStepIndex]) {
       const step = steps[currentStepIndex];
@@ -63,7 +60,10 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
       {/* Mathematical Theory & Equation Card */}
       <div className="theory-card">
         <div className="theory-header">
-          <h4>{data.analysis_type} Framework</h4>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Activity size={18} style={{ color: 'var(--accent-cyan)' }} />
+            <h4>{data.analysis_type} Framework</h4>
+          </div>
           <div className="equation-badges">
             <span
               className={`eq-tag ${
@@ -93,7 +93,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
         </div>
       </div>
 
-      {/* Domain / Universal Set / Definitions Table */}
+      {/* Program Definitions Table for Reaching Defs */}
       {activeType === 'rd' && data.definitions_table && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h4 style={{ fontSize: '0.85rem', fontWeight: 600 }}>
@@ -105,8 +105,8 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
                 <tr>
                   <th>Def ID</th>
                   <th>Variable</th>
-                  <th>3AC Statement</th>
-                  <th>C Source Line</th>
+                  <th>Intermediate 3AC</th>
+                  <th>Original C Statement</th>
                   <th>Block</th>
                 </tr>
               </thead>
@@ -136,6 +136,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
         </div>
       )}
 
+      {/* Available Expressions Universal Set */}
       {activeType === 'ae' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <h4 style={{ fontSize: '0.85rem', fontWeight: 600 }}>
@@ -157,7 +158,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
         </div>
       )}
 
-      {/* Local Sets: GEN & KILL or USE & DEF */}
+      {/* Block Local Sets: GEN/KILL or USE/DEF */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h4 style={{ fontSize: '0.85rem', fontWeight: 600 }}>
           {activeType === 'lv'
@@ -172,12 +173,12 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
                 <th>
                   {activeType === 'lv'
                     ? 'USE[B] (Used Before Defined)'
-                    : 'GEN[B] (Generated)'}
+                    : 'GEN[B] (Generated Defs)'}
                 </th>
                 <th>
                   {activeType === 'lv'
                     ? 'DEF[B] (Defined Before Used)'
-                    : 'KILL[B] (Killed)'}
+                    : 'KILL[B] (Killed Defs)'}
                 </th>
               </tr>
             </thead>
@@ -188,7 +189,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
                 return (
                   <tr key={bId}>
                     <td>
-                      <strong>{bId}</strong>
+                      <strong style={{ color: 'var(--accent-cyan)' }}>{bId}</strong>
                     </td>
                     <td>
                       <code>{`{ ${gen.join(', ') || '∅'} }`}</code>
@@ -204,10 +205,15 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
         </div>
       </div>
 
-      {/* Interactive Step-by-Step Scrubber */}
+      {/* Step-by-Step Convergence Scrubber */}
       <div className="step-controller-card">
         <div className="controller-header">
-          <h4>Iterative Convergence Walkthrough</h4>
+          <div>
+            <h4>Iterative Convergence Walkthrough</h4>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              Step through iterations until fixed point convergence is achieved
+            </div>
+          </div>
           <div className="step-playback-buttons">
             <button
               className="btn btn-sm btn-secondary"
@@ -271,7 +277,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
             <span className="step-highlight-tag">
               Iter {currentStep.iteration} ({currentStep.block_id})
             </span>
-            <span>{currentStep.explanation}</span>
+            <span style={{ lineHeight: 1.45 }}>{currentStep.explanation}</span>
           </div>
         )}
       </div>
@@ -303,7 +309,7 @@ export default function DataFlowPanel({ analysisData, activeType = 'rd', onHighl
                 >
                   <td>Iter {s.iteration}</td>
                   <td>
-                    <strong>{s.block_id}</strong>
+                    <strong style={{ color: 'var(--accent-cyan)' }}>{s.block_id}</strong>
                   </td>
                   <td>
                     <code>
