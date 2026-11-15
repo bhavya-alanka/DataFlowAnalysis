@@ -131,6 +131,7 @@ function CFGCanvasInner({
 export default function CFGCanvas({
   cfgData,
   selectedBlockId,
+  evaluatingBlockId,
   onSelectBlock,
   onAnalyze,
 }) {
@@ -231,6 +232,7 @@ export default function CFGCanvas({
               ? 'EXIT'
               : 'BLOCK',
             isSelected: item.id === selectedBlockId,
+            isEvaluating: item.id === evaluatingBlockId,
           },
           selected: item.id === selectedBlockId,
         });
@@ -305,7 +307,7 @@ export default function CFGCanvas({
 
     setNodes(calculatedNodes);
     setEdges(calculatedEdges);
-  }, [cfgData, selectedBlockId]);
+  }, [cfgData, selectedBlockId, evaluatingBlockId]);
 
   if (!cfgData || !cfgData.blocks || cfgData.blocks.length === 0) {
     return (

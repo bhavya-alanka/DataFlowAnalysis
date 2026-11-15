@@ -6,13 +6,14 @@ import { GitCommit, Play, Square, GitBranch, ArrowDown } from 'lucide-react';
 export const CustomBlockNode = ({ data, selected }) => {
   const block = data?.block || {};
   const isSelected = selected || data?.isSelected;
+  const isEvaluating = data?.isEvaluating;
 
   // Determine block classification badge
   const isDecision = (block.successors && block.successors.length > 1);
   const isMerge = (block.predecessors && block.predecessors.length > 1);
 
   return (
-    <div className={`cfg-node-card ${isSelected ? 'selected' : ''}`}>
+    <div className={`cfg-node-card ${isSelected ? 'selected' : ''} ${isEvaluating ? 'evaluating-pulse' : ''}`}>
       <Handle
         type="target"
         position={Position.Top}
@@ -24,6 +25,7 @@ export const CustomBlockNode = ({ data, selected }) => {
         <div className="cfg-node-id-badge">
           <GitCommit size={13} className="node-icon" />
           <span className="node-id-text">{block.id}</span>
+          {isEvaluating && <span className="evaluating-tag" title="Currently being evaluated in fixed-point iteration">Evaluating</span>}
         </div>
 
         <div className="cfg-node-badges">

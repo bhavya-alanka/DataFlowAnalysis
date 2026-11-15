@@ -69,8 +69,32 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // View Mode: 'graph' | 'tac'
-  const [rightViewMode, setRightViewMode] = useState('graph');
+  // View Mode: 'split' | 'graph' | 'table' | 'tac'
+  const [rightViewMode, setRightViewMode] = useState('split');
+  const [tableFilter, setTableFilter] = useState('');
+  const [codeCopied, setCodeCopied] = useState(false);
+
+  const SNIPPETS = [
+    { label: '+ If-Else', code: 'if (x > 0) {\n    y = x + 1;\n} else {\n    y = x - 1;\n}' },
+    { label: '+ While Loop', code: 'while (i < 5) {\n    sum = sum + i;\n    i = i + 1;\n}' },
+    { label: '+ For Loop', code: 'for (int j = 0; j < 3; j++) {\n    total += j;\n}' },
+    { label: '+ Redefinition (Kill)', code: 'x = 10;\ny = x * 2;\nx = 20;' },
+    { label: '+ Common Expr (CSE)', code: 'u = (a + b) * 2;\nv = (a + b) * 2;' },
+  ];
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(code);
+    setCodeCopied(true);
+    showToast('Source code copied to clipboard!', 'success');
+    setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  const handleInsertSnippet = (snippet) => {
+    const newCode = code.trim() ? `${code.trim()}\n\n${snippet}` : snippet;
+    setCode(newCode);
+    runAnalysis(newCode);
+    showToast('Code snippet inserted & analyzed!', 'success');
+  };
 
   // Language Subset Selection
   const [selectedLanguageSubset, setSelectedLanguageSubset] = useState('c_subset');
@@ -186,6 +210,17 @@ export default function App() {
     const numA = parseInt(a.replace(/\D/g, ''), 10) || 0;
     const numB = parseInt(b.replace(/\D/g, ''), 10) || 0;
     return numA - numB;
+  });
+
+  const filteredBlockIds = sortedBlockIds.filter((bId) => {
+    if (!tableFilter.trim()) return true;
+    const q = tableFilter.toLowerCase();
+    if (bId.toLowerCase().includes(q)) return true;
+    const gen = (blockGen[bId] || []).join(' ').toLowerCase();
+    const kill = (blockKill[bId] || []).join(' ').toLowerCase();
+    const inS = (finalIn[bId] || []).join(' ').toLowerCase();
+    const outS = (finalOut[bId] || []).join(' ').toLowerCase();
+    return gen.includes(q) || kill.includes(q) || inS.includes(q) || outS.includes(q);
   });
 
   const renderSet = (items) => {
@@ -518,6 +553,10 @@ export default function App() {
                 <span className="panel-title">Source Code Editor</span>
                 <span className="panel-subtitle">• C subset or TAC</span>
               </div>
+              <button className="btn btn-secondary btn-sm" onClick={handleCopyCode} title="Copy source code to clipboard">
+                {codeCopied ? <Check size={12} color="var(--accent-emerald)" /> : <Copy size={12} />}
+                <span>{codeCopied ? 'Copied' : 'Copy Code'}</span>
+              </button>
             </div>
 
             {/* Controls Bar: Load Example + Language Subset + Action Buttons */}
@@ -580,6 +619,21 @@ export default function App() {
                   <span>Clear</span>
                 </button>
               </div>
+            </div>
+
+            {/* Quick Snippets Insertion Bar */}
+            <div className="snippets-bar">
+              <span className="snippets-label">Insert Snippet:</span>
+              {SNIPPETS.map((s) => (
+                <button
+                  key={s.label}
+                  className="snippet-chip"
+                  onClick={() => handleInsertSnippet(s.code)}
+                  title={`Insert ${s.label} into program and re-analyze`}
+                >
+                  {s.label}
+                </button>
+              ))}
             </div>
 
             {/* Code Input Box with Line Numbers */}
@@ -704,199 +758,222 @@ if (a < b) {
         {/* ================= RIGHT COLUMN: GRAPH, 3AC & DATA-FLOW RESULTS ================= */}
         <div className="results-column">
           {/* Section A: Control Flow Graph (CFG) / 3AC Toggle */}
-          <div className="section-panel" id="cfg-section">
-            <div className="panel-header">
-              <div className="panel-title-group">
-                <GitBranch size={16} color="var(--accent-blue)" />
-                <span className="panel-title">
-                  {rightViewMode === 'graph' ? 'Control Flow Graph (CFG)' : 'Three-Address Code (3AC) Quadruples'}
-                </span>
-                <span className="panel-subtitle">
-                  {rightViewMode === 'graph' ? '• Interactive execution topology' : '• Linear intermediate code & leader rules'}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {/* View Switcher Toggle */}
-                <div className="view-mode-pill-toggle">
-                  <button
-                    className={`view-pill ${rightViewMode === 'graph' ? 'active' : ''}`}
-                    onClick={() => setRightViewMode('graph')}
-                  >
-                    <GitBranch size={12} />
-                    <span>Visual CFG</span>
-                  </button>
-                  <button
-                    className={`view-pill ${rightViewMode === 'tac' ? 'active' : ''}`}
-                    onClick={() => setRightViewMode('tac')}
-                  >
-                    <ListOrdered size={12} />
-                    <span>3AC Quadruples</span>
-                  </button>
-                </div>
-
-                {analysisData && (
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                    Blocks: <strong style={{ color: 'var(--accent-blue)' }}>{userBlockCount}</strong> | Edges: <strong>{edgeCount}</strong>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* View A: Visual Interactive Graph */}
-            {rightViewMode === 'graph' ? (
-              <div className="cfg-panel-body">
-                <CFGCanvas
-                  cfgData={analysisData?.cfg}
-                  selectedBlockId={selectedBlockId}
-                  onSelectBlock={handleSelectBlock}
-                  onAnalyze={() => runAnalysis(code)}
-                />
-              </div>
-            ) : (
-              /* View B: Linear Three-Address Code Table */
-              <div style={{ padding: '16px', overflowX: 'auto', background: 'var(--bg-input)', minHeight: 400 }}>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 12 }}>
-                  Three-Address Code (3AC) instructions partitioned into basic blocks using <strong>Rule 1 (First statement)</strong>, <strong>Rule 2 (Target of jump)</strong>, and <strong>Rule 3 (Following jump)</strong>.
-                </div>
-                <table className="results-table" style={{ fontSize: '0.74rem' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 45 }}>#</th>
-                      <th style={{ width: 75 }}>Leader</th>
-                      <th>Instruction (3AC Quadruple)</th>
-                      <th>Type</th>
-                      <th>Original Source</th>
-                      <th style={{ width: 70 }}>Block</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allInstructions.map((instr) => (
-                      <tr key={instr.id} className={instr.is_leader ? 'leader-row-highlight' : ''}>
-                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{instr.id}</td>
-                        <td>
-                          {instr.is_leader ? (
-                            <span className="leader-rule-pill" title={instr.leader_reason || 'Block Leader'}>
-                              ★ Leader
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-dim)' }}>—</span>
-                          )}
-                        </td>
-                        <td>
-                          <code style={{ color: 'var(--text-main)', fontWeight: 600 }}>{instr.raw}</code>
-                        </td>
-                        <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{instr.type}</td>
-                        <td style={{ color: 'var(--text-secondary)' }}>
-                          {instr.c_stmt ? `Line ${instr.c_line}: ${instr.c_stmt}` : '—'}
-                        </td>
-                        <td>
-                          <button
-                            className="conn-tag"
-                            onClick={() => {
-                              setRightViewMode('graph');
-                              const blk = analysisData?.cfg?.blocks?.find((b) =>
-                                b.instructions?.some((i) => i.id === instr.id)
-                              );
-                              if (blk) handleSelectBlock(blk);
-                            }}
-                          >
-                            {analysisData?.cfg?.blocks?.find((b) =>
-                              b.instructions?.some((i) => i.id === instr.id)
-                            )?.id || '—'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Beginner-Friendly Contextual Block Inspector */}
-            {selectedBlock ? (
-              <div className="selected-block-banner">
-                <div className="selected-block-header">
-                  <div className="selected-block-title">
-                    <span>Block {selectedBlock.id}</span>
-                    <span style={{ fontSize: '0.68rem', background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', padding: '1px 6px', borderRadius: 4, color: 'var(--text-muted)' }}>
-                      {selectedBlock.is_entry ? 'ENTRY' : selectedBlock.is_exit ? 'EXIT' : 'Basic Block'}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                    Click any node in graph or table row to inspect
+          {(rightViewMode === 'split' || rightViewMode === 'graph' || rightViewMode === 'tac') && (
+            <div className="section-panel" id="cfg-section">
+              <div className="panel-header">
+                <div className="panel-title-group">
+                  <GitBranch size={16} color="var(--accent-blue)" />
+                  <span className="panel-title">
+                    {rightViewMode === 'tac' ? 'Three-Address Code (3AC) Quadruples' : 'Control Flow Graph (CFG)'}
+                  </span>
+                  <span className="panel-subtitle">
+                    {rightViewMode === 'tac'
+                      ? '• Linear intermediate code & leader rules'
+                      : '• Interactive execution topology'}
                   </span>
                 </div>
 
-                {/* Plain-English Semantic Role */}
-                <div className="block-semantic-role">
-                  {getSemanticRoleDescription(selectedBlock)}
-                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {/* View Switcher Toggle */}
+                  <div className="view-mode-pill-toggle">
+                    <button
+                      className={`view-pill ${rightViewMode === 'split' ? 'active' : ''}`}
+                      onClick={() => setRightViewMode('split')}
+                      title="Show both Graph and Tables stacked"
+                    >
+                      <Layers size={12} />
+                      <span>Split All</span>
+                    </button>
+                    <button
+                      className={`view-pill ${rightViewMode === 'graph' ? 'active' : ''}`}
+                      onClick={() => setRightViewMode('graph')}
+                      title="Focus on CFG Canvas"
+                    >
+                      <GitBranch size={12} />
+                      <span>Focus Graph</span>
+                    </button>
+                    <button
+                      className={`view-pill ${rightViewMode === 'table' ? 'active' : ''}`}
+                      onClick={() => setRightViewMode('table')}
+                      title="Focus on Data-Flow Results & Equations"
+                    >
+                      <Activity size={12} />
+                      <span>Focus Table</span>
+                    </button>
+                    <button
+                      className={`view-pill ${rightViewMode === 'tac' ? 'active' : ''}`}
+                      onClick={() => setRightViewMode('tac')}
+                      title="View Linear Three-Address Code listing"
+                    >
+                      <ListOrdered size={12} />
+                      <span>3AC Quadruples</span>
+                    </button>
+                  </div>
 
-                {/* Predecessors & Successors */}
-                <div className="selected-conn-row">
-                  <div>
-                    <span>Predecessor Blocks: </span>
-                    <span className="conn-tags">
-                      {selectedBlock.predecessors?.length > 0 ? (
-                        selectedBlock.predecessors.map((p) => (
-                          <button key={p} className="conn-tag" onClick={() => handleSelectBlock(p)}>
-                            {p}
-                          </button>
-                        ))
-                      ) : (
-                        <span>None (Program Entry)</span>
-                      )}
+                  {analysisData && (
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Blocks: <strong style={{ color: 'var(--accent-blue)' }}>{userBlockCount}</strong> | Edges: <strong>{edgeCount}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* View A: Visual Interactive Graph */}
+              {rightViewMode !== 'tac' ? (
+                <div className="cfg-panel-body" style={{ minHeight: rightViewMode === 'graph' ? 580 : 440 }}>
+                  <CFGCanvas
+                    cfgData={analysisData?.cfg}
+                    selectedBlockId={selectedBlockId}
+                    evaluatingBlockId={showIterationSteps && steps[currentStepIdx] ? steps[currentStepIdx].block_id : null}
+                    onSelectBlock={handleSelectBlock}
+                    onAnalyze={() => runAnalysis(code)}
+                  />
+                </div>
+              ) : (
+                /* View B: Linear Three-Address Code Table */
+                <div style={{ padding: '16px', overflowX: 'auto', background: 'var(--bg-input)', minHeight: 400 }}>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                    Three-Address Code (3AC) instructions partitioned into basic blocks using <strong>Rule 1 (First statement)</strong>, <strong>Rule 2 (Target of jump)</strong>, and <strong>Rule 3 (Following jump)</strong>.
+                  </div>
+                  <table className="results-table" style={{ fontSize: '0.74rem' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 45 }}>#</th>
+                        <th style={{ width: 75 }}>Leader</th>
+                        <th>Instruction (3AC Quadruple)</th>
+                        <th>Type</th>
+                        <th>Original Source</th>
+                        <th style={{ width: 70 }}>Block</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allInstructions.map((instr) => (
+                        <tr key={instr.id} className={instr.is_leader ? 'leader-row-highlight' : ''}>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{instr.id}</td>
+                          <td>
+                            {instr.is_leader ? (
+                              <span className="leader-rule-pill" title={instr.leader_reason || 'Block Leader'}>
+                                ★ Leader
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--text-dim)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            <code style={{ color: 'var(--text-main)', fontWeight: 600 }}>{instr.raw}</code>
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{instr.type}</td>
+                          <td style={{ color: 'var(--text-secondary)' }}>
+                            {instr.c_stmt ? `Line ${instr.c_line}: ${instr.c_stmt}` : '—'}
+                          </td>
+                          <td>
+                            <button
+                              className="conn-tag"
+                              onClick={() => {
+                                setRightViewMode('graph');
+                                const blk = analysisData?.cfg?.blocks?.find((b) =>
+                                  b.instructions?.some((i) => i.id === instr.id)
+                                );
+                                if (blk) handleSelectBlock(blk);
+                              }}
+                            >
+                              {analysisData?.cfg?.blocks?.find((b) =>
+                                b.instructions?.some((i) => i.id === instr.id)
+                              )?.id || '—'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Beginner-Friendly Contextual Block Inspector */}
+              {selectedBlock ? (
+                <div className="selected-block-banner">
+                  <div className="selected-block-header">
+                    <div className="selected-block-title">
+                      <span>Block {selectedBlock.id}</span>
+                      <span style={{ fontSize: '0.68rem', background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', padding: '1px 6px', borderRadius: 4, color: 'var(--text-muted)' }}>
+                        {selectedBlock.is_entry ? 'ENTRY' : selectedBlock.is_exit ? 'EXIT' : 'Basic Block'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                      Click any node in graph or table row to inspect
                     </span>
                   </div>
 
-                  <div>
-                    <span>Successor Blocks: </span>
-                    <span className="conn-tags">
-                      {selectedBlock.successors?.length > 0 ? (
-                        selectedBlock.successors.map((s) => (
-                          <button key={s} className="conn-tag" onClick={() => handleSelectBlock(s)}>
-                            {s}
-                          </button>
-                        ))
-                      ) : (
-                        <span>None (Program Exit)</span>
-                      )}
-                    </span>
+                  {/* Plain-English Semantic Role */}
+                  <div className="block-semantic-role">
+                    {getSemanticRoleDescription(selectedBlock)}
                   </div>
-                </div>
 
-                {/* "Why is this block connected here?" */}
-                <div className="why-connected-box">
-                  <span className="why-title">Why is this block connected here?</span>
-                  <p className="why-text">{getWhyConnectedText(selectedBlock)}</p>
-                </div>
-
-                {/* Block Instructions with Leader Notation */}
-                {selectedBlock.instructions && selectedBlock.instructions.length > 0 && (
-                  <div className="selected-instr-list">
-                    {selectedBlock.instructions.map((instr) => (
-                      <div key={instr.id} className="selected-instr-item">
-                        {instr.is_leader ? (
-                          <span className="leader-tag" title={instr.leader_reason || 'Leader instruction (entry point of basic block)'}>★</span>
+                  {/* Predecessors & Successors */}
+                  <div className="selected-conn-row">
+                    <div>
+                      <span>Predecessor Blocks: </span>
+                      <span className="conn-tags">
+                        {selectedBlock.predecessors?.length > 0 ? (
+                          selectedBlock.predecessors.map((p) => (
+                            <button key={p} className="conn-tag" onClick={() => handleSelectBlock(p)}>
+                              {p}
+                            </button>
+                          ))
                         ) : (
-                          <span style={{ color: 'var(--text-dim)', width: 14 }}>{instr.id}</span>
+                          <span>None (Program Entry)</span>
                         )}
-                        <code>{instr.raw}</code>
-                      </div>
-                    ))}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span>Successor Blocks: </span>
+                      <span className="conn-tags">
+                        {selectedBlock.successors?.length > 0 ? (
+                          selectedBlock.successors.map((s) => (
+                            <button key={s} className="conn-tag" onClick={() => handleSelectBlock(s)}>
+                              {s}
+                            </button>
+                          ))
+                        ) : (
+                          <span>None (Program Exit)</span>
+                        )}
+                      </span>
+                    </div>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div style={{ padding: '10px 16px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-subtle)', fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                Click any basic block node above or row in the table below to inspect its statements, predecessors, successors, and role.
-              </div>
-            )}
-          </div>
+
+                  {/* "Why is this block connected here?" */}
+                  <div className="why-connected-box">
+                    <span className="why-title">Why is this block connected here?</span>
+                    <p className="why-text">{getWhyConnectedText(selectedBlock)}</p>
+                  </div>
+
+                  {/* Block Instructions with Leader Notation */}
+                  {selectedBlock.instructions && selectedBlock.instructions.length > 0 && (
+                    <div className="selected-instr-list">
+                      {selectedBlock.instructions.map((instr) => (
+                        <div key={instr.id} className="selected-instr-item">
+                          {instr.is_leader ? (
+                            <span className="leader-tag" title={instr.leader_reason || 'Leader instruction (entry point of basic block)'}>★</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-dim)', width: 14 }}>{instr.id}</span>
+                          )}
+                          <code>{instr.raw}</code>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ padding: '10px 16px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-subtle)', fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                  Click any basic block node above or row in the table below to inspect its statements, predecessors, successors, and role.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Section B: Data-Flow Analysis Results */}
-          <div className="section-panel" id="dataflow-section">
+          {(rightViewMode === 'split' || rightViewMode === 'table') && (
             <div className="panel-header" style={{ padding: 0 }}>
               <div className="analysis-tabs-bar" style={{ width: '100%' }}>
                 <button
@@ -1091,6 +1168,19 @@ if (a < b) {
               )}
 
               {/* Canonical IN/OUT Table */}
+              <div className="table-filter-bar">
+                <span style={{ fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                  Canonical IN / OUT Fixed-Point Solutions:
+                </span>
+                <input
+                  type="text"
+                  placeholder="Filter blocks or facts..."
+                  value={tableFilter}
+                  onChange={(e) => setTableFilter(e.target.value)}
+                  className="table-filter-input"
+                />
+              </div>
+
               <div style={{ overflowX: 'auto' }}>
                 <table className="results-table">
                   <thead>
@@ -1103,8 +1193,8 @@ if (a < b) {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedBlockIds.length > 0 ? (
-                      sortedBlockIds.map((bId) => {
+                    {filteredBlockIds.length > 0 ? (
+                      filteredBlockIds.map((bId) => {
                         const isSelected = selectedBlockId === bId;
                         const gen = blockGen[bId] || [];
                         const kill = blockKill[bId] || [];
@@ -1133,7 +1223,7 @@ if (a < b) {
                     ) : (
                       <tr>
                         <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '24px' }}>
-                          Run analysis to view the data-flow equations and results table.
+                          {tableFilter ? `No basic blocks match filter "${tableFilter}".` : 'Run analysis to view the data-flow equations and results table.'}
                         </td>
                       </tr>
                     )}
@@ -1236,6 +1326,7 @@ if (a < b) {
               )}
             </div>
           </div>
+          )}
         </div>
       </main>
 
