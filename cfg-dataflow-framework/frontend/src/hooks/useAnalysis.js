@@ -40,7 +40,7 @@ export function useAnalysis() {
         error_type: 'InputError',
         message: 'Source code cannot be empty. Please enter C source code.',
         line: 1,
-        col: 1
+        col: 1,
       });
       showToast('Please enter C source code', 'error');
       return;
@@ -53,13 +53,14 @@ export function useAnalysis() {
       const data = await analyzeProgram(source, 'c');
       setAnalysisData(data);
       // Auto-select first non-entry basic block
-      const userBlocks = data.cfg?.blocks?.filter(b => !b.is_entry && !b.is_exit);
+      const userBlocks = data.cfg?.blocks?.filter((b) => !b.is_entry && !b.is_exit);
       if (userBlocks && userBlocks.length > 0) {
         setSelectedBlockId(userBlocks[0].id);
       } else if (data.cfg?.blocks?.length > 0) {
         setSelectedBlockId(data.cfg.blocks[0].id);
       }
-      showToast(`Analysis complete: ${data.cfg?.blocks?.length || 0} basic blocks analyzed`, 'success');
+      const engineLabel = data.engine === 'backend' ? 'FastAPI Backend' : 'In-Browser Engine';
+      showToast(`Analysis complete via ${engineLabel} (${data.cfg?.blocks?.length || 0} blocks)`, 'success');
     } catch (err) {
       setError(err);
       setAnalysisData(null);
@@ -75,7 +76,7 @@ export function useAnalysis() {
     const interval = setInterval(checkHealth, 5000);
 
     fetchSamples()
-      .then(fetched => {
+      .then((fetched) => {
         if (Array.isArray(fetched) && fetched.length > 0) {
           setSamples(fetched);
         }
@@ -91,10 +92,10 @@ export function useAnalysis() {
       clearInterval(interval);
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
-  }, [checkHealth]);
+  }, [checkHealth, runAnalysis]);
 
   const selectSample = useCallback((sampleId) => {
-    const sample = samples.find(s => s.id === sampleId) || DEFAULT_SAMPLES.find(s => s.id === sampleId);
+    const sample = samples.find((s) => s.id === sampleId) || DEFAULT_SAMPLES.find((s) => s.id === sampleId);
     if (sample) {
       setSelectedSampleId(sampleId);
       const cleanCode = sample.code.trim();
@@ -107,8 +108,8 @@ export function useAnalysis() {
 
   const resetCode = useCallback(() => {
     const current =
-      samples.find(s => s.id === selectedSampleId) ||
-      DEFAULT_SAMPLES.find(s => s.id === selectedSampleId) ||
+      samples.find((s) => s.id === selectedSampleId) ||
+      DEFAULT_SAMPLES.find((s) => s.id === selectedSampleId) ||
       DEFAULT_SAMPLES[0];
     const cleanCode = current.code.trim();
     setCode(cleanCode);
@@ -125,7 +126,8 @@ export function useAnalysis() {
     showToast('Code cleared. Enter your C program.', 'info');
   }, [showToast]);
 
-  const selectedBlock = analysisData?.cfg?.blocks?.find(b => b.id === selectedBlockId) || null;
+  const selectedBlock = analysisData?.cfg?.blocks?.find((b) => b.id === selectedBlockId) || null;
+  const activeEngine = analysisData?.engine || (isServerHealthy ? 'backend' : 'client');
 
   return {
     code,
@@ -134,6 +136,7 @@ export function useAnalysis() {
     selectedSampleId,
     selectSample,
     isServerHealthy,
+    activeEngine,
     isAnalyzing,
     error,
     toast,

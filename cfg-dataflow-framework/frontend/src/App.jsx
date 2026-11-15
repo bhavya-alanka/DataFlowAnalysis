@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Workflow,
   Play,
   RotateCcw,
   Trash2,
   GitBranch,
-  Layers,
   ArrowRight,
   TrendingDown,
   TrendingUp,
@@ -16,9 +15,19 @@ import {
   Sun,
   Moon,
   HelpCircle,
-  CornerDownRight,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Copy,
+  Check,
+  FileCode,
+  Layers,
+  GraduationCap,
+  PlayCircle,
+  PauseCircle,
+  Zap,
+  CheckCheck,
+  ListOrdered,
+  X
 } from 'lucide-react';
 
 import CFGCanvas from './components/graph/CFGCanvas';
@@ -32,9 +41,11 @@ export default function App() {
     selectedSampleId,
     selectSample,
     isServerHealthy,
+    activeEngine,
     isAnalyzing,
     error,
     toast,
+    showToast,
     analysisData,
     selectedBlockId,
     setSelectedBlockId,
@@ -58,7 +69,10 @@ export default function App() {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   };
 
-  // Language Subset Selection (both run through the same general compiler pipeline)
+  // View Mode: 'graph' | 'tac'
+  const [rightViewMode, setRightViewMode] = useState('graph');
+
+  // Language Subset Selection
   const [selectedLanguageSubset, setSelectedLanguageSubset] = useState('c_subset');
 
   // Active Data-Flow Analysis Tab: 'rd' | 'lv' | 'ae'
@@ -67,9 +81,18 @@ export default function App() {
   // Step scrubber state
   const [showIterationSteps, setShowIterationSteps] = useState(false);
   const [currentStepIdx, setCurrentStepIdx] = useState(0);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState(1000); // 1000ms
+
+  // Viva modal open state
+  const [isVivaModalOpen, setIsVivaModalOpen] = useState(false);
+
+  // Copy buttons feedback
+  const [copiedType, setCopiedType] = useState(null);
 
   const textareaRef = useRef(null);
   const lineGutterRef = useRef(null);
+  const autoPlayTimerRef = useRef(null);
 
   const lines = code.split('\n');
   const lineCount = Math.max(1, lines.length);
@@ -121,7 +144,38 @@ export default function App() {
 
   useEffect(() => {
     setCurrentStepIdx(0);
+    setIsAutoPlaying(false);
   }, [analysisData, activeAnalysisTab]);
+
+  // Auto-play scrubber logic
+  useEffect(() => {
+    if (isAutoPlaying && steps.length > 0) {
+      autoPlayTimerRef.current = setInterval(() => {
+        setCurrentStepIdx((prev) => {
+          if (prev >= steps.length - 1) {
+            setIsAutoPlaying(false);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, playSpeed);
+    } else {
+      if (autoPlayTimerRef.current) clearInterval(autoPlayTimerRef.current);
+    }
+    return () => {
+      if (autoPlayTimerRef.current) clearInterval(autoPlayTimerRef.current);
+    };
+  }, [isAutoPlaying, steps.length, playSpeed]);
+
+  // Synchronize scrubber block highlight with selected block
+  useEffect(() => {
+    if (showIterationSteps && steps[currentStepIdx]) {
+      const stepBlock = steps[currentStepIdx].block_id;
+      if (stepBlock && stepBlock !== 'ENTRY' && stepBlock !== 'EXIT') {
+        setSelectedBlockId(stepBlock);
+      }
+    }
+  }, [currentStepIdx, showIterationSteps, steps]);
 
   const blockGen = currentAnalysis?.block_gen || {};
   const blockKill = currentAnalysis?.block_kill || {};
@@ -140,7 +194,7 @@ export default function App() {
     }
     const sorted = [...items].sort();
     return (
-      <span>
+      <span className="set-chips-wrapper">
         {sorted.map((item) => (
           <span key={item} className="set-chip-item">
             {item}
@@ -154,10 +208,10 @@ export default function App() {
   let analysisExplanation = '';
   if (activeAnalysisTab === 'rd') {
     analysisExplanation =
-      'Reaching Definitions finds which variable definitions may reach each basic block without being overwritten. GEN[B] contains definitions made inside B. KILL[B] contains older definitions of those same variables overwritten in B. Because execution can follow any path, IN[B] is the union (∪) of OUT sets from all predecessor blocks. The transfer equation is: OUT[B] = GEN[B] ∪ (IN[B] - KILL[B]).';
+      'Reaching Definitions determines which variable definitions (dᵢ) may reach each basic block without being killed along an intervening path. GEN[B] contains definitions made inside B. KILL[B] contains older definitions overwritten in B. Because execution can follow any path, IN[B] is the union (∪) of OUT sets from all predecessor blocks. The transfer equation is: OUT[B] = GEN[B] ∪ (IN[B] - KILL[B]).';
   } else if (activeAnalysisTab === 'lv') {
     analysisExplanation =
-      'Live Variables finds which variables hold values that might be read later along some future execution path. USE[B] contains variables read before definition in B. DEF[B] contains variables defined in B. Because Live Variables is a backward analysis, OUT[B] is the union (∪) of IN sets of all successor blocks. The transfer equation is: IN[B] = USE[B] ∪ (OUT[B] - DEF[B]).';
+      'Live Variables finds which variables hold values that may be read later along some future execution path before being redefined. USE[B] contains variables read before definition in B. DEF[B] contains variables assigned in B. Because Live Variables is a backward analysis, OUT[B] is the union (∪) of IN sets of all successor blocks. The transfer equation is: IN[B] = USE[B] ∪ (OUT[B] - DEF[B]).';
   } else if (activeAnalysisTab === 'ae') {
     analysisExplanation =
       'Available Expressions finds expressions whose computed values are guaranteed to be available on all paths reaching a block without being invalidated by operand updates. Because this is a must-analysis, an expression must reach through EVERY incoming path (using intersection ∩) to be in IN[B]. The transfer equation is: OUT[B] = GEN[B] ∪ (IN[B] - KILL[B]).';
@@ -171,8 +225,8 @@ export default function App() {
     const outEdges = analysisData.cfg.edges.filter((e) => e.source === bId);
 
     const inReasons = inEdges.map((e) => {
-      if (e.type === 'conditional_true') return `from ${e.source} when the condition evaluates to True`;
-      if (e.type === 'conditional_false') return `from ${e.source} when the condition evaluates to False`;
+      if (e.type === 'conditional_true') return `from ${e.source} when condition evaluates to True`;
+      if (e.type === 'conditional_false') return `from ${e.source} when condition evaluates to False`;
       if (e.type === 'back_edge') return `from loop body ${e.source} (loop repeat)`;
       return `sequentially from ${e.source}`;
     });
@@ -220,8 +274,52 @@ export default function App() {
     return `Sequential Basic Block (${block.id}): Group of straight-line instructions executed sequentially without branching in the middle.`;
   };
 
+  // Export handlers
+  const handleCopyMarkdown = () => {
+    if (!currentAnalysis) return;
+    const isLv = activeAnalysisTab === 'lv';
+    const colGen = isLv ? 'USE[B]' : 'GEN[B]';
+    const colKill = isLv ? 'DEF[B]' : 'KILL[B]';
+    let md = `### ${currentAnalysis.analysis_type} — Data-Flow Results\n\n`;
+    md += `| Block | ${colGen} | ${colKill} | IN[B] | OUT[B] |\n`;
+    md += `| :--- | :--- | :--- | :--- | :--- |\n`;
+    for (const bId of sortedBlockIds) {
+      const g = (blockGen[bId] || []).length > 0 ? `{${blockGen[bId].join(', ')}}` : '∅';
+      const k = (blockKill[bId] || []).length > 0 ? `{${blockKill[bId].join(', ')}}` : '∅';
+      const i = (finalIn[bId] || []).length > 0 ? `{${finalIn[bId].join(', ')}}` : '∅';
+      const o = (finalOut[bId] || []).length > 0 ? `{${finalOut[bId].join(', ')}}` : '∅';
+      md += `| **${bId}** | \`${g}\` | \`${k}\` | \`${i}\` | \`${o}\` |\n`;
+    }
+    navigator.clipboard.writeText(md);
+    setCopiedType('markdown');
+    showToast('Copied Markdown table to clipboard!', 'success');
+    setTimeout(() => setCopiedType(null), 2000);
+  };
+
+  const handleCopyLatex = () => {
+    if (!currentAnalysis) return;
+    const isLv = activeAnalysisTab === 'lv';
+    const colGen = isLv ? 'USE[B]' : 'GEN[B]';
+    const colKill = isLv ? 'DEF[B]' : 'KILL[B]';
+    let tex = `% Generated by CFG & Data-Flow Analysis Framework\n`;
+    tex += `\\begin{table}[htbp]\n\\centering\n`;
+    tex += `\\caption{Canonical IN/OUT Results for ${currentAnalysis.analysis_type}}\n`;
+    tex += `\\begin{tabular}{|c|c|c|c|c|}\n\\hline\n`;
+    tex += `\\textbf{Block} & \\textbf{${colGen}} & \\textbf{${colKill}} & \\textbf{IN[B]} & \\textbf{OUT[B]} \\\\ \\hline\n`;
+    for (const bId of sortedBlockIds) {
+      const fmt = (items) => (items && items.length > 0 ? `\\{${items.join(', ')}\\}` : `\\emptyset`);
+      tex += `${bId} & ${fmt(blockGen[bId])} & ${fmt(blockKill[bId])} & ${fmt(finalIn[bId])} & ${fmt(finalOut[bId])} \\\\ \\hline\n`;
+    }
+    tex += `\\end{tabular}\n\\end{table}\n`;
+    navigator.clipboard.writeText(tex);
+    setCopiedType('latex');
+    showToast('Copied LaTeX table to clipboard!', 'success');
+    setTimeout(() => setCopiedType(null), 2000);
+  };
+
   const userBlockCount = analysisData?.cfg?.blocks?.filter((b) => !b.is_entry && !b.is_exit).length || 0;
   const edgeCount = analysisData?.cfg?.edges?.length || 0;
+  const allInstructions = analysisData?.cfg?.blocks?.flatMap((b) => b.instructions || []) || [];
 
   // Tracked count for results summary
   let trackedCount = 0;
@@ -230,12 +328,14 @@ export default function App() {
     trackedCount = currentAnalysis?.definitions_table?.length || 0;
     trackedLabel = 'Definitions';
   } else if (activeAnalysisTab === 'lv') {
-    trackedCount = currentAnalysis?.variables?.length || 0;
+    trackedCount = currentAnalysis?.universal_set?.length || 0;
     trackedLabel = 'Variables';
   } else if (activeAnalysisTab === 'ae') {
     trackedCount = currentAnalysis?.universal_set?.length || 0;
     trackedLabel = 'Expressions';
   }
+
+  const optimizations = analysisData?.optimizations || [];
 
   return (
     <div className="app-container">
@@ -247,27 +347,51 @@ export default function App() {
         </div>
       )}
 
-      {/* 1. Header with Title & Theme Toggle */}
+      {/* 1. Header with Title, Theme Toggle, & Engine Status */}
       <header className="simple-header">
         <div className="header-brand">
           <div className="header-logo-icon">
             <Workflow size={22} />
           </div>
           <div className="header-title-block">
-            <h1>CFG and Data-Flow Analysis Framework</h1>
-            <p>An interactive, beginner-friendly compiler analysis tool for Control Flow Graphs and data-flow algorithms.</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h1>CFG &amp; Data-Flow Analysis Framework</h1>
+              <span className="version-pill">v2.0 • Submission Ready</span>
+            </div>
+            <p>An interactive, educational compiler analysis platform for Control Flow Graphs and iterative data-flow algorithms.</p>
           </div>
         </div>
 
         <div className="header-right-tools">
+          {/* Viva Theory Button */}
+          <button
+            className="btn btn-secondary header-btn"
+            onClick={() => setIsVivaModalOpen(true)}
+            title="Open Viva & Theory Guide (Definitions, Equations, Leader Rules)"
+          >
+            <GraduationCap size={15} color="var(--accent-purple)" />
+            <span>Viva &amp; Theory Guide</span>
+          </button>
+
+          {/* Theme Toggle */}
           <button className="theme-toggle-btn" onClick={toggleTheme} title="Toggle Light / Dark Theme">
             {theme === 'dark' ? <Sun size={14} color="var(--accent-amber)" /> : <Moon size={14} color="var(--accent-blue)" />}
             <span>{theme === 'dark' ? 'Light Theme' : 'Dark Theme'}</span>
           </button>
 
-          <div className={`header-status-badge ${isServerHealthy ? 'online' : 'offline'}`} title="FastAPI Compiler Backend Status">
-            <span className="status-dot"></span>
-            <span>{isServerHealthy ? 'Backend: Active (127.0.0.1:8000)' : 'Connecting to Backend...'}</span>
+          {/* Dual Engine Indicator */}
+          <div
+            className={`header-status-badge ${isServerHealthy ? 'online' : 'client-engine'}`}
+            title={
+              isServerHealthy
+                ? 'Connected to Python FastAPI compiler backend on port 8000'
+                : 'Python backend offline; seamless In-Browser Client Compiler Engine is running active analysis!'
+            }
+          >
+            <span className={`status-dot ${isServerHealthy ? 'dot-online' : 'dot-client'}`}></span>
+            <span>
+              {isServerHealthy ? 'Backend: FastAPI (Port 8000)' : 'Engine: In-Browser (Offline Mode)'}
+            </span>
           </div>
         </div>
       </header>
@@ -281,17 +405,22 @@ export default function App() {
         <ChevronRight size={13} className="step-arrow" />
         <div className={`step-item ${analysisData ? 'active' : ''}`}>
           <span className="step-num">2</span>
-          <span>Build CFG</span>
+          <span>Detect Leaders (Rules 1, 2, 3)</span>
         </div>
         <ChevronRight size={13} className="step-arrow" />
         <div className={`step-item ${analysisData ? 'active' : ''}`}>
           <span className="step-num">3</span>
-          <span>Analyze</span>
+          <span>Build CFG</span>
+        </div>
+        <ChevronRight size={13} className="step-arrow" />
+        <div className={`step-item ${analysisData ? 'active' : ''}`}>
+          <span className="step-num">4</span>
+          <span>Solve Fixed-Point (RD / LV / AE)</span>
         </div>
         <ChevronRight size={13} className="step-arrow" />
         <div className={`step-item ${selectedBlock ? 'active' : ''}`}>
-          <span className="step-num">4</span>
-          <span>Explore Results</span>
+          <span className="step-num">5</span>
+          <span>Inspect Results &amp; Optimize</span>
         </div>
       </nav>
 
@@ -299,29 +428,32 @@ export default function App() {
       <section className="glossary-strip" aria-label="Technical Terms Glossary">
         <div className="glossary-lead">
           <HelpCircle size={14} />
-          <span>Key Terms:</span>
+          <span>Quick Terms:</span>
         </div>
         <div className="glossary-items">
           <div className="glossary-pill" title="Control Flow Graph">
-            <span className="glossary-term">CFG</span>: Shows the possible execution paths of a program.
+            <span className="glossary-term">CFG</span>: Graph of possible execution paths
           </div>
           <div className="glossary-pill" title="Basic Block">
-            <span className="glossary-term">Basic Block</span>: A group of statements executed sequentially.
+            <span className="glossary-term">Basic Block</span>: Straight-line code sequence with 1 entry, 1 exit
+          </div>
+          <div className="glossary-pill" title="Leader Instruction">
+            <span className="glossary-term">Leader</span>: First statement of a basic block (3AC partition)
           </div>
           <div className="glossary-pill" title="GEN Set">
-            <span className="glossary-term">GEN</span>: Facts generated by a block.
+            <span className="glossary-term">GEN</span>: Facts newly generated inside block
           </div>
           <div className="glossary-pill" title="KILL Set">
-            <span className="glossary-term">KILL</span>: Facts invalidated by a block.
+            <span className="glossary-term">KILL</span>: Facts invalidated by assignments
           </div>
           <div className="glossary-pill" title="IN Set">
-            <span className="glossary-term">IN</span>: Facts entering a block.
+            <span className="glossary-term">IN</span>: Facts entering block boundary
           </div>
           <div className="glossary-pill" title="OUT Set">
-            <span className="glossary-term">OUT</span>: Facts leaving a block.
+            <span className="glossary-term">OUT</span>: Facts leaving block boundary
           </div>
           <div className="glossary-pill" title="Fixed Point">
-            <span className="glossary-term">Fixed Point</span>: A stage where another iteration does not change the results.
+            <span className="glossary-term">Fixed Point</span>: Stable state where repeated iteration produces no changes
           </div>
         </div>
       </section>
@@ -354,16 +486,24 @@ export default function App() {
                 Fixed Point Reached ✓
               </span>
             </div>
+            <div className="summary-metric-item">
+              <span className="summary-metric-label">Active Engine</span>
+              <span className="summary-metric-val" style={{ color: 'var(--accent-blue)', fontSize: '0.8rem' }}>
+                {activeEngine === 'backend' ? 'Python FastAPI' : 'In-Browser JS'}
+              </span>
+            </div>
           </div>
 
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => {
-              if (textareaRef.current) textareaRef.current.focus();
-            }}
-          >
-            <span>Edit or Analyze Another Program</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-secondary btn-sm" onClick={handleCopyMarkdown} title="Copy IN/OUT Table as Markdown">
+              {copiedType === 'markdown' ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
+              <span>Copy Markdown Table</span>
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={handleCopyLatex} title="Copy IN/OUT Table as LaTeX tabular code">
+              {copiedType === 'latex' ? <Check size={13} color="var(--accent-emerald)" /> : <Copy size={13} />}
+              <span>Copy LaTeX Table</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -374,8 +514,9 @@ export default function App() {
           <div className="section-panel" id="write-program-section">
             <div className="panel-header">
               <div className="panel-title-group">
-                <span className="panel-title">Write Program</span>
-                <span className="panel-subtitle">• Enter or paste C source code</span>
+                <FileCode size={16} color="var(--accent-blue)" />
+                <span className="panel-title">Source Code Editor</span>
+                <span className="panel-subtitle">• C subset or TAC</span>
               </div>
             </div>
 
@@ -398,14 +539,14 @@ export default function App() {
               </div>
 
               <div className="picker-row">
-                <label htmlFor="lang-subset-select" className="picker-label">Language:</label>
+                <label htmlFor="lang-subset-select" className="picker-label">Grammar:</label>
                 <select
                   id="lang-subset-select"
                   className="sample-select"
                   value={selectedLanguageSubset}
                   onChange={(e) => setSelectedLanguageSubset(e.target.value)}
                 >
-                  <option value="c_subset">C Subset (Assignments, Conditionals, Loops)</option>
+                  <option value="c_subset">C Subset (Assignments, If-Else, While/For Loops)</option>
                   <option value="c_main">C Function (`int main() &#123; ... &#125;`)</option>
                 </select>
               </div>
@@ -418,13 +559,13 @@ export default function App() {
                   title="Analyze program (Ctrl + Enter)"
                 >
                   <Play size={14} fill="currentColor" />
-                  <span>{isAnalyzing ? 'Analyzing…' : 'Analyze My Program'}</span>
+                  <span>{isAnalyzing ? 'Analyzing…' : 'Analyze Program'}</span>
                 </button>
 
                 <button
                   className="btn btn-secondary"
                   onClick={resetCode}
-                  title="Reset to selected example code"
+                  title="Reset to current example template"
                 >
                   <RotateCcw size={13} />
                   <span>Reset</span>
@@ -496,48 +637,181 @@ if (a < b) {
             </div>
           </div>
 
+          {/* Compiler Optimization Opportunities & Diagnostics */}
+          {optimizations.length > 0 && (
+            <div className="section-panel" style={{ padding: '14px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Sparkles size={16} color="var(--accent-amber)" />
+                <span style={{ fontWeight: 700, fontSize: '0.84rem', color: 'var(--text-main)' }}>
+                  Compiler Optimization Diagnostics ({optimizations.length})
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {optimizations.map((diag, idx) => {
+                  const isCse = diag.type === 'cse_opportunity';
+                  const isDead = diag.type === 'dead_assignment';
+                  const badgeColor = isCse ? 'var(--accent-emerald)' : isDead ? 'var(--accent-amber)' : 'var(--accent-coral)';
+                  const badgeLabel = isCse ? 'CSE Opportunity' : isDead ? 'Dead Code' : 'Uninitialized';
+
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-subtle)',
+                        borderLeft: `3px solid ${badgeColor}`,
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        fontSize: '0.74rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: badgeColor }}>
+                          {badgeLabel}
+                        </span>
+                        <span style={{ color: 'var(--text-dim)' }}>•</span>
+                        <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          Line {diag.line} ({diag.block})
+                        </span>
+                        <span style={{ color: 'var(--text-dim)' }}>•</span>
+                        <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>{diag.source}</span>
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>{diag.message}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Help & Examples: Supported Language Features Guide */}
           <div className="syntax-guide-card" id="help-examples-section">
             <span className="syntax-guide-title">
               <Info size={14} color="var(--accent-blue)" />
-              Help &amp; Supported Language Syntax:
+              Supported Language Grammar:
             </span>
             <div className="syntax-guide-list">
               <div>• <strong>Assignments:</strong> <code>a = 10; b = 20; c = a + b;</code></div>
-              <div>• <strong>Variables:</strong> Explicit (<code>int x;</code>) or implicit (<code>x = 5;</code>)</div>
+              <div>• <strong>Declarations:</strong> <code>int x = 5; int y;</code></div>
               <div>• <strong>Conditionals:</strong> <code>if (x &gt; 5) &#123; ... &#125; else &#123; ... &#125;</code></div>
-              <div>• <strong>Loops:</strong> <code>while (i &lt; 5) &#123; ... &#125;</code> and <code>for</code> loops</div>
-              <div>• <strong>Operators:</strong> Arithmetic <code>+ - * / %</code>, Relational <code>== != &lt; &lt;= &gt; &gt;=</code></div>
-              <div>• <strong>Blocks:</strong> Braced blocks <code>&#123; ... &#125;</code> or single unbraced statements</div>
+              <div>• <strong>Loops:</strong> <code>while (i &lt; 5) &#123; ... &#125;</code> and <code>for (int i=0; i&lt;5; i++)</code></div>
+              <div>• <strong>Operators:</strong> Arithmetic <code>+ - * / %</code>, Relational <code>== != &lt; &lt;= &gt; &gt;=</code>, Logical <code>&amp;&amp; || !</code></div>
+              <div>• <strong>Functions:</strong> Formal C main (<code>int main() &#123; ... &#125;</code>) or top-level statements</div>
             </div>
           </div>
         </div>
 
-        {/* ================= RIGHT COLUMN: GRAPH & DATA-FLOW RESULTS ================= */}
+        {/* ================= RIGHT COLUMN: GRAPH, 3AC & DATA-FLOW RESULTS ================= */}
         <div className="results-column">
-          {/* Section A: Control Flow Graph (CFG) */}
+          {/* Section A: Control Flow Graph (CFG) / 3AC Toggle */}
           <div className="section-panel" id="cfg-section">
             <div className="panel-header">
               <div className="panel-title-group">
                 <GitBranch size={16} color="var(--accent-blue)" />
-                <span className="panel-title">Control Flow Graph (CFG)</span>
-                <span className="panel-subtitle">• Understand the program's execution paths</span>
+                <span className="panel-title">
+                  {rightViewMode === 'graph' ? 'Control Flow Graph (CFG)' : 'Three-Address Code (3AC) Quadruples'}
+                </span>
+                <span className="panel-subtitle">
+                  {rightViewMode === 'graph' ? '• Interactive execution topology' : '• Linear intermediate code & leader rules'}
+                </span>
               </div>
-              {analysisData && (
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  Blocks: <strong style={{ color: 'var(--accent-blue)' }}>{userBlockCount}</strong> | Edges: <strong>{edgeCount}</strong>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {/* View Switcher Toggle */}
+                <div className="view-mode-pill-toggle">
+                  <button
+                    className={`view-pill ${rightViewMode === 'graph' ? 'active' : ''}`}
+                    onClick={() => setRightViewMode('graph')}
+                  >
+                    <GitBranch size={12} />
+                    <span>Visual CFG</span>
+                  </button>
+                  <button
+                    className={`view-pill ${rightViewMode === 'tac' ? 'active' : ''}`}
+                    onClick={() => setRightViewMode('tac')}
+                  >
+                    <ListOrdered size={12} />
+                    <span>3AC Quadruples</span>
+                  </button>
                 </div>
-              )}
+
+                {analysisData && (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Blocks: <strong style={{ color: 'var(--accent-blue)' }}>{userBlockCount}</strong> | Edges: <strong>{edgeCount}</strong>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="cfg-panel-body">
-              <CFGCanvas
-                cfgData={analysisData?.cfg}
-                selectedBlockId={selectedBlockId}
-                onSelectBlock={handleSelectBlock}
-                onAnalyze={() => runAnalysis(code)}
-              />
-            </div>
+            {/* View A: Visual Interactive Graph */}
+            {rightViewMode === 'graph' ? (
+              <div className="cfg-panel-body">
+                <CFGCanvas
+                  cfgData={analysisData?.cfg}
+                  selectedBlockId={selectedBlockId}
+                  onSelectBlock={handleSelectBlock}
+                  onAnalyze={() => runAnalysis(code)}
+                />
+              </div>
+            ) : (
+              /* View B: Linear Three-Address Code Table */
+              <div style={{ padding: '16px', overflowX: 'auto', background: 'var(--bg-input)', minHeight: 400 }}>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                  Three-Address Code (3AC) instructions partitioned into basic blocks using <strong>Rule 1 (First statement)</strong>, <strong>Rule 2 (Target of jump)</strong>, and <strong>Rule 3 (Following jump)</strong>.
+                </div>
+                <table className="results-table" style={{ fontSize: '0.74rem' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 45 }}>#</th>
+                      <th style={{ width: 75 }}>Leader</th>
+                      <th>Instruction (3AC Quadruple)</th>
+                      <th>Type</th>
+                      <th>Original Source</th>
+                      <th style={{ width: 70 }}>Block</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allInstructions.map((instr) => (
+                      <tr key={instr.id} className={instr.is_leader ? 'leader-row-highlight' : ''}>
+                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>{instr.id}</td>
+                        <td>
+                          {instr.is_leader ? (
+                            <span className="leader-rule-pill" title={instr.leader_reason || 'Block Leader'}>
+                              ★ Leader
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-dim)' }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          <code style={{ color: 'var(--text-main)', fontWeight: 600 }}>{instr.raw}</code>
+                        </td>
+                        <td style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{instr.type}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>
+                          {instr.c_stmt ? `Line ${instr.c_line}: ${instr.c_stmt}` : '—'}
+                        </td>
+                        <td>
+                          <button
+                            className="conn-tag"
+                            onClick={() => {
+                              setRightViewMode('graph');
+                              const blk = analysisData?.cfg?.blocks?.find((b) =>
+                                b.instructions?.some((i) => i.id === instr.id)
+                              );
+                              if (blk) handleSelectBlock(blk);
+                            }}
+                          >
+                            {analysisData?.cfg?.blocks?.find((b) =>
+                              b.instructions?.some((i) => i.id === instr.id)
+                            )?.id || '—'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {/* Beginner-Friendly Contextual Block Inspector */}
             {selectedBlock ? (
@@ -550,7 +824,7 @@ if (a < b) {
                     </span>
                   </div>
                   <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                    Click other blocks in the graph or table to inspect
+                    Click any node in graph or table row to inspect
                   </span>
                 </div>
 
@@ -604,7 +878,7 @@ if (a < b) {
                     {selectedBlock.instructions.map((instr) => (
                       <div key={instr.id} className="selected-instr-item">
                         {instr.is_leader ? (
-                          <span className="leader-tag" title="Leader instruction (entry point of basic block)">★</span>
+                          <span className="leader-tag" title={instr.leader_reason || 'Leader instruction (entry point of basic block)'}>★</span>
                         ) : (
                           <span style={{ color: 'var(--text-dim)', width: 14 }}>{instr.id}</span>
                         )}
@@ -675,7 +949,7 @@ if (a < b) {
               </div>
             )}
 
-            {/* Results Table & Short Explanations */}
+            {/* Results Table & Explanations */}
             <div className="dataflow-table-container">
               {/* Short explanation card for beginners */}
               <div className="calc-explanation-card">
@@ -690,7 +964,7 @@ if (a < b) {
                 </p>
               </div>
 
-              {/* Section 8: "How Was This Result Calculated?" for the selected block */}
+              {/* "How Was This Result Calculated?" for the selected block */}
               {selectedBlock && currentAnalysis && (
                 <div className="calc-explanation-card" style={{ borderLeftColor: 'var(--accent-blue)' }}>
                   <div className="calc-header">
@@ -867,7 +1141,7 @@ if (a < b) {
                 </table>
               </div>
 
-              {/* Section 9: Iteration Visualizer & Scrubber */}
+              {/* Section 9: Iteration Visualizer & Scrubber with Auto-Play */}
               {steps.length > 0 && (
                 <div className="iteration-scrubber-box">
                   <div className="scrubber-controls-row">
@@ -876,43 +1150,86 @@ if (a < b) {
                       onClick={() => setShowIterationSteps(!showIterationSteps)}
                     >
                       <Activity size={12} />
-                      <span>{showIterationSteps ? 'Hide Iteration History' : `Explore Iteration History (${steps.length} steps to Fixed Point)`}</span>
+                      <span>{showIterationSteps ? 'Hide Iteration History' : `Explore Iteration Timeline (${steps.length} Steps)`}</span>
                     </button>
 
                     {showIterationSteps && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {/* Auto-play button */}
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setIsAutoPlaying(!isAutoPlaying)}
+                          title={isAutoPlaying ? 'Pause timeline playback' : 'Auto-play through iteration steps'}
+                        >
+                          {isAutoPlaying ? <PauseCircle size={13} color="var(--accent-amber)" /> : <PlayCircle size={13} color="var(--accent-emerald)" />}
+                          <span>{isAutoPlaying ? 'Pause' : 'Auto Play'}</span>
+                        </button>
+
+                        {/* Speed Selector */}
+                        <select
+                          className="sample-select"
+                          style={{ padding: '2px 6px', fontSize: '0.72rem', width: 75 }}
+                          value={playSpeed}
+                          onChange={(e) => setPlaySpeed(Number(e.target.value))}
+                        >
+                          <option value={1500}>0.7x</option>
+                          <option value={1000}>1.0x</option>
+                          <option value={500}>2.0x</option>
+                        </select>
+
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => setCurrentStepIdx((p) => Math.max(0, p - 1))}
                           disabled={currentStepIdx === 0}
                         >
-                          Prev Step
+                          Prev
                         </button>
+
                         <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                           Step {currentStepIdx + 1} / {steps.length}
                         </span>
+
                         <button
                           className="btn btn-secondary btn-sm"
                           onClick={() => setCurrentStepIdx((p) => Math.min(steps.length - 1, p + 1))}
                           disabled={currentStepIdx >= steps.length - 1}
                         >
-                          Next Step
+                          Next
                         </button>
                       </div>
                     )}
                   </div>
 
-                  {showIterationSteps && steps[currentStepIdx] && (
-                    <div className="step-details-callout">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ background: 'var(--bg-card)', padding: '1px 6px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
-                          Iteration {steps[currentStepIdx].iteration} ({steps[currentStepIdx].block_id})
-                        </span>
-                        <span style={{ fontSize: '0.7rem', color: steps[currentStepIdx].has_changed ? 'var(--accent-amber)' : 'var(--accent-emerald)' }}>
-                          {steps[currentStepIdx].has_changed ? '▲ State Changed' : '✓ Unchanged'}
-                        </span>
-                      </div>
-                      <div>{steps[currentStepIdx].explanation}</div>
+                  {showIterationSteps && (
+                    <div style={{ marginTop: 10 }}>
+                      {/* Scrubber Range Slider */}
+                      <input
+                        type="range"
+                        min={0}
+                        max={steps.length - 1}
+                        value={currentStepIdx}
+                        onChange={(e) => setCurrentStepIdx(Number(e.target.value))}
+                        style={{ width: '100%', accentColor: 'var(--accent-blue)', cursor: 'pointer' }}
+                      />
+
+                      {steps[currentStepIdx] && (
+                        <div className="step-details-callout">
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ background: 'var(--bg-card)', padding: '2px 8px', borderRadius: 4, fontFamily: 'var(--font-mono)', fontWeight: 'bold', color: 'var(--accent-blue)' }}>
+                                Iteration {steps[currentStepIdx].iteration} ({steps[currentStepIdx].block_id})
+                              </span>
+                              <span style={{ fontSize: '0.7rem', color: steps[currentStepIdx].has_changed ? 'var(--accent-amber)' : 'var(--accent-emerald)' }}>
+                                {steps[currentStepIdx].has_changed ? '▲ State Changed' : '✓ Unchanged'}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>
+                              Block evaluated on this step is selected in graph
+                            </span>
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem' }}>{steps[currentStepIdx].explanation}</div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -921,6 +1238,135 @@ if (a < b) {
           </div>
         </div>
       </main>
+
+      {/* ================= VIVA & THEORY MODAL ================= */}
+      {isVivaModalOpen && (
+        <div className="viva-modal-backdrop" onClick={() => setIsVivaModalOpen(false)}>
+          <div className="viva-modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="viva-modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <GraduationCap size={20} color="var(--accent-purple)" />
+                <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  Compiler Design Viva &amp; Theory Guide
+                </h2>
+              </div>
+              <button className="viva-modal-close-btn" onClick={() => setIsVivaModalOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="viva-modal-body">
+              {/* Leader Detection Rules */}
+              <div className="viva-card">
+                <h3 className="viva-section-title">
+                  <span className="viva-section-num">1</span>
+                  Leader Detection Rules (Basic Block Partitioning)
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  To partition linear Three-Address Code into basic blocks, leaders are identified using 3 canonical rules:
+                </p>
+                <div className="viva-rule-item">
+                  <strong>Rule 1 (First Instruction):</strong> The very first instruction in the intermediate code is a leader.
+                </div>
+                <div className="viva-rule-item">
+                  <strong>Rule 2 (Target of Jump):</strong> Any instruction that is the target of a conditional (<code>if_goto</code>) or unconditional (<code>goto</code>) jump is a leader.
+                </div>
+                <div className="viva-rule-item">
+                  <strong>Rule 3 (Following a Jump):</strong> Any instruction immediately following a conditional or unconditional jump is a leader.
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                  <em>Block definition:</em> A basic block starts at a leader and includes all instructions up to, but not including, the next leader or the end of the program.
+                </div>
+              </div>
+
+              {/* Data-Flow Analysis Matrix */}
+              <div className="viva-card">
+                <h3 className="viva-section-title">
+                  <span className="viva-section-num">2</span>
+                  Data-Flow Analysis Canonical Comparison Matrix
+                </h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="results-table" style={{ fontSize: '0.74rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Analysis</th>
+                        <th>Direction</th>
+                        <th>Meet (Confluence)</th>
+                        <th>Transfer Equation</th>
+                        <th>Boundary Condition</th>
+                        <th>Application</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><strong>Reaching Definitions</strong></td>
+                        <td>Forward (↓)</td>
+                        <td>Union (∪) — May</td>
+                        <td><code>OUT = GEN ∪ (IN - KILL)</code></td>
+                        <td><code>OUT[ENTRY] = ∅</code></td>
+                        <td>Constant Propagation, Uninitialized Warnings</td>
+                      </tr>
+                      <tr>
+                        <td><strong>Live Variables</strong></td>
+                        <td>Backward (↑)</td>
+                        <td>Union (∪) — May</td>
+                        <td><code>IN = USE ∪ (OUT - DEF)</code></td>
+                        <td><code>IN[EXIT] = ∅</code></td>
+                        <td>Dead Code Elimination, Register Allocation</td>
+                      </tr>
+                      <tr>
+                        <td><strong>Available Expressions</strong></td>
+                        <td>Forward (↓)</td>
+                        <td>Intersection (∩) — Must</td>
+                        <td><code>OUT = GEN ∪ (IN - KILL)</code></td>
+                        <td><code>OUT[ENTRY] = ∅; OUT[B]=U</code></td>
+                        <td>Common Subexpression Elimination (CSE)</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Viva Key Questions */}
+              <div className="viva-card">
+                <h3 className="viva-section-title">
+                  <span className="viva-section-num">3</span>
+                  Frequently Asked Viva / Interview Questions
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <strong style={{ color: 'var(--accent-blue)' }}>Q1: Why is Available Expressions initialized to Universal Set U, while Reaching Definitions starts at ∅?</strong>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                      Available Expressions uses <em>intersection (∩)</em>. If initialized to ∅, intersecting with ∅ would always yield ∅, permanently wiping out valid available expressions. Reaching Definitions uses <em>union (∪)</em>, where ∅ is the identity element.
+                    </p>
+                  </div>
+                  <div>
+                    <strong style={{ color: 'var(--accent-blue)' }}>Q2: What guarantees that the iterative data-flow algorithm will terminate?</strong>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                      By Tarski's Fixed Point Theorem, the state forms a finite-height semi-lattice, and the transfer function is monotonic. In each iteration, sets only grow (for union) or shrink (for intersection) monotonically until reaching a stable fixed point.
+                    </p>
+                  </div>
+                  <div>
+                    <strong style={{ color: 'var(--accent-blue)' }}>Q3: What is the difference between a forward and backward data-flow problem?</strong>
+                    <p style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                      In a forward problem (e.g. Reaching Definitions), information flows along the direction of control flow (from predecessors to successors). In a backward problem (e.g. Live Variables), information flows against control flow (from future read sites backwards towards definitions).
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="viva-modal-footer">
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
+                CFG &amp; Data-Flow Analysis Framework • Compiler Design Lab &amp; Viva Reference
+              </span>
+              <button className="btn btn-primary btn-sm" onClick={() => setIsVivaModalOpen(false)}>
+                Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
